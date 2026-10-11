@@ -65,7 +65,7 @@ class Runtime:
                     if tunnel.get("status") == "running" and public_ip.version == 4 and public_ip.is_global and interface_ready:
                         forwarded_port = None
                         try:
-                            forwarding = self.control(container, "/v1/portforward")
+                            forwarding = self.control(container, "/v1/openvpn/portforwarded")
                             port = forwarding.get("port")
                             if type(port) is int and 1 <= port <= 65535:
                                 forwarded_port = port
@@ -95,18 +95,18 @@ class Runtime:
                 container.reload()
                 expected = "on" if port_forwarding else "off"
                 environment = container.attrs.get("Config", {}).get("Env", [])
-                if f"VPN_PORT_FORWARDING={expected}" in environment:
+                if f"VPN_PORT_FORWARDING={expected}" in environment and container.labels.get("org.mediahub.mediavpn.runtime") == "2":
                     if not container.attrs.get("State", {}).get("Running"):
                         container.start()
                     return
                 container.stop(timeout=10)
                 container.remove()
             control_config = self.data / "gluetun-control.toml"
-            control_config.write_text('[[roles]]\nname = "mediavpn-status"\nroutes = ["GET /v1/vpn/status", "GET /v1/publicip/ip", "GET /v1/portforward"]\nauth = "none"\n')
+            control_config.write_text('[[roles]]\nname = "mediavpn-status"\nroutes = ["GET /v1/vpn/status", "GET /v1/publicip/ip", "GET /v1/openvpn/portforwarded"]\nauth = "none"\n')
             control_config.chmod(0o600)
             self.docker().containers.run(
                 self.image, name=f"mediavpn-{identifier}", detach=True,
-                labels={OWNER: "mediavpn", "org.mediahub.mediavpn.profile": identifier},
+                labels={OWNER: "mediavpn", "org.mediahub.mediavpn.profile": identifier, "org.mediahub.mediavpn.runtime": "2"},
                 environment={"VPN_SERVICE_PROVIDER": "custom", "VPN_TYPE": "wireguard", "FIREWALL": "on", "UPDATER_PERIOD": "0", "HTTP_CONTROL_SERVER_ADDRESS": "127.0.0.1:8000", "VPN_PORT_FORWARDING": "on" if port_forwarding else "off", "VPN_PORT_FORWARDING_PROVIDER": "protonvpn"},
                 volumes={str(self.host_data / "profiles" / f"{identifier}.conf"): {"bind": "/gluetun/wireguard/wg0.conf", "mode": "ro"}, str(self.host_data / control_config.name): {"bind": "/gluetun/auth/config.toml", "mode": "ro"}},
                 cap_add=["NET_ADMIN"], devices=["/dev/net/tun:/dev/net/tun:rwm"],

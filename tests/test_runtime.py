@@ -8,7 +8,7 @@ def test_requires_recent_successful_healthcheck(tmp_path):
     def execute(command):
         if command[0] == "ip":
             return SimpleNamespace(exit_code=0, output=b'[{"ifname":"tun0","flags":["UP"],"addr_info":[{"family":"inet"}]}]')
-        if command[-1].endswith("/portforward"):
+        if command[-1].endswith("/portforwarded"):
             return SimpleNamespace(exit_code=0, output=b'{"port":43210}')
         return SimpleNamespace(exit_code=0, output=b'{"status":"running"}' if command[-1].endswith("/status") else b'{"public_ip":"8.8.8.8"}')
     container = SimpleNamespace(attrs={"State": {"Running": True, "Health": {"Status": "healthy", "Log": []}}}, reload=lambda: None, exec_run=execute)
