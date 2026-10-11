@@ -107,6 +107,10 @@ def create_app(data_dir=None, base_url=None, runtime=None):
         stopping.set()
         if worker:
             worker.join(timeout=20)
+            try:
+                seedbox.stop()
+            except Exception:
+                pass
 
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=[origin.hostname])
