@@ -42,6 +42,10 @@ Each new profile is saved stopped. Start only through its explicit Start action.
 
 ## Tests And Upgrade
 
+### Native RSS integration
+
+The restricted client RPC permits only MediaSeed-owned RSS item paths and NordicBytes HTTPS feed/torrent addresses. Metadata downloads run in the VPN client, reject redirects and cap torrent files at 4 MiB. Native RSS auto-download rules stay disabled; MediaSeed applies date/history approval, imports stopped, then starts an exact returned hash under a fresh gate. The native shared queue is configured for eight active downloads. Other RSS providers are rejected until their download boundaries are implemented. Existing feeds are not activated during deployment.
+
 ```sh
 python -m pytest tests -q
 ```

@@ -13,8 +13,8 @@ from fastapi import HTTPException
 
 CLIENT_OWNER = "org.mediahub.mediavpn.seedbox"
 CLIENT_NAME = "mediavpn-mediaseed-client"
-ALLOWED_READS = {"app/version", "app/preferences", "torrents/info", "transfer/info", "torrents/properties", "torrents/files", "torrents/trackers", "sync/torrentPeers"}
-ALLOWED_WRITES = {"torrents/add", "torrents/start", "torrents/stop", "torrents/delete", "torrents/setShareLimits", "torrents/setFilePriority"}
+ALLOWED_READS = {"app/version", "app/preferences", "torrents/info", "torrents/categories", "transfer/info", "torrents/properties", "torrents/files", "torrents/trackers", "sync/torrentPeers", "rss/items", "rss/torrent"}
+ALLOWED_WRITES = {"torrents/add", "torrents/start", "torrents/stop", "torrents/delete", "torrents/setShareLimits", "torrents/setFilePriority", "torrents/createCategory", "torrents/topPrio", "rss/addFeed", "rss/removeItem", "rss/refreshItem"}
 
 RPC_CODE = """
 import base64,http.cookiejar,json,pathlib,sys,urllib.request,urllib.parse,urllib.error
@@ -31,7 +31,15 @@ try:
     password=pathlib.Path('/secrets/qbit-password').read_text().strip()
     send('auth/login',urllib.parse.urlencode({'username':'mediaseed','password':password}).encode())
     payload=body.get('payload') or {}
-    if body['method']=='GET':
+    if body['path']=='rss/torrent':
+        class NoRedirect(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self,*args):return None
+        fetcher=urllib.request.build_opener(urllib.request.ProxyHandler({}),NoRedirect())
+        with fetcher.open(payload['url'],timeout=8) as response:
+            raw=response.read(4*1024*1024+1)
+            if len(raw)>4*1024*1024 or not raw.startswith(b'd') or not raw.endswith(b'e'):raise ValueError('Invalid torrent')
+            result={'status':response.status,'body':base64.b64encode(raw).decode()}
+    elif body['method']=='GET':
         result=send(body['path']+('?' + urllib.parse.urlencode(payload) if payload else ''))
     elif body.get('file_path'):
         boundary='mediaseed-internal-upload'
@@ -143,10 +151,10 @@ class Seedbox:
                 response = self.execute(child, "app/preferences", "GET", {})
                 preferences = json.loads(base64.b64decode(response["body"]))
                 if preferences.get("current_network_interface") != "tun0" or preferences.get("listen_port") != observed["forwardedPort"] or preferences.get("upnp") or preferences.get("max_active_downloads") != 8 or not preferences.get("queueing_enabled"):
-                    self.execute(child, "app/setPreferences", "POST", {"json": json.dumps({"current_network_interface": "tun0", "listen_port": observed["forwardedPort"], "upnp": False, "random_port": False, "max_active_downloads": 8, "queueing_enabled": True})})
+                    self.execute(child, "app/setPreferences", "POST", {"json": json.dumps({"current_network_interface": "tun0", "listen_port": observed["forwardedPort"], "upnp": False, "random_port": False, "max_active_downloads": 8, "max_active_torrents": -1, "max_active_uploads": -1, "queueing_enabled": True, "rss_processing_enabled": True, "rss_auto_downloading_enabled": False})})
                     response = self.execute(child, "app/preferences", "GET", {})
                     preferences = json.loads(base64.b64decode(response["body"]))
-                if preferences.get("current_network_interface") != "tun0" or preferences.get("listen_port") != observed["forwardedPort"] or preferences.get("upnp"):
+                if preferences.get("current_network_interface") != "tun0" or preferences.get("listen_port") != observed["forwardedPort"] or preferences.get("upnp") or preferences.get("max_active_downloads") != 8 or not preferences.get("queueing_enabled") or not preferences.get("rss_processing_enabled") or preferences.get("rss_auto_downloading_enabled"):
                     raise ValueError("Torrent interface or port not bound")
                 self.error = None
             except Exception:
@@ -252,6 +260,20 @@ class Seedbox:
             raise HTTPException(403, "Torrent operation not allowed")
         if len(json.dumps(payload)) > 12000:
             raise HTTPException(413, "Torrent request too large")
+        if path.startswith("rss/"):
+            from urllib.parse import urlsplit
+            allowed = {"rss/items": {"withData"}, "rss/torrent": {"url"}, "rss/addFeed": {"url", "path"}, "rss/removeItem": {"path"}, "rss/refreshItem": {"itemPath"}}
+            if not set(payload).issubset(allowed[path]):
+                raise HTTPException(422, "Unsupported RSS fields")
+            if "url" in payload:
+                address = urlsplit(str(payload["url"]))
+                if address.scheme != "https" or address.netloc != "nordicbytes.org" or address.fragment:
+                    raise HTTPException(422, "Only NordicBytes HTTPS RSS sources are enabled")
+                if path == "rss/torrent" and not address.path.startswith("/torrents/download/"):
+                    raise HTTPException(422, "Invalid RSS torrent address")
+            item_path = payload.get("path", payload.get("itemPath"))
+            if item_path is not None and not re.fullmatch(r"MediaSeed-RSS-[a-f0-9]{24}", str(item_path)):
+                raise HTTPException(422, "Invalid RSS feed path")
         if method == "POST":
             fields = {
                 "torrents/add": {"urls", "stopped", "paused", "savepath", "ratioLimit", "seedingTimeLimit", "category"},
@@ -259,14 +281,19 @@ class Seedbox:
                 "torrents/delete": {"hashes", "deleteFiles"},
                 "torrents/setShareLimits": {"hashes", "ratioLimit", "seedingTimeLimit", "inactiveSeedingTimeLimit"},
                 "torrents/setFilePriority": {"hash", "id", "priority"},
+                "rss/addFeed": {"url", "path"}, "rss/removeItem": {"path"}, "rss/refreshItem": {"itemPath"},
+                "torrents/createCategory": {"category", "savePath"}, "torrents/topPrio": {"hashes"},
             }
             if not set(payload).issubset(fields[path]):
                 raise HTTPException(422, "Unsupported torrent fields")
-            if path != "torrents/add":
+            if path == "torrents/createCategory":
+                if not re.fullmatch(r"MediaSeed-RSS-[a-f0-9]{24}", str(payload.get("category", ""))) or not re.fullmatch(r"/downloads(?:/[A-Za-z0-9_-]+)*", str(payload.get("savePath", ""))):
+                    raise HTTPException(422, "Invalid RSS category")
+            elif not path.startswith("rss/") and path != "torrents/add":
                 identifier = str(payload.get("hashes", payload.get("hash", "")))
                 if not re.fullmatch(r"[a-fA-F0-9]{40}|[a-fA-F0-9]{64}", identifier):
                     raise HTTPException(422, "Invalid torrent hash")
-            else:
+            elif path == "torrents/add":
                 if payload.get("stopped") != "true" or payload.get("paused") != "true":
                     raise HTTPException(422, "New torrents must be stopped")
                 if not re.fullmatch(r"/downloads(?:/[A-Za-z0-9_-]+)*", str(payload.get("savepath", ""))):

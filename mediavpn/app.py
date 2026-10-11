@@ -192,13 +192,13 @@ def create_app(data_dir=None, base_url=None, runtime=None):
         return seedbox.rpc(body.path, body.method, body.payload)
 
     @app.post("/api/integration/upload")
-    async def integration_upload(request: Request, ratio: float = Query(default=1, ge=1, le=1000, allow_inf_nan=False), session=Depends(machine_authorized)):
+    async def integration_upload(request: Request, ratio: float = Query(default=1, ge=1, le=1000, allow_inf_nan=False), savepath: str = Query(default="/downloads", pattern=r"^/downloads(?:/[A-Za-z0-9_-]+)*$", max_length=200), category: str = Query(default="", max_length=100), session=Depends(machine_authorized)):
         content = bytearray()
         async for chunk in request.stream():
             content.extend(chunk)
             if len(content) > 4 * 1024 * 1024:
                 raise HTTPException(413, "Torrent file exceeds 4 MiB")
-        return seedbox.rpc("torrents/add", "POST", {"stopped": "true", "paused": "true", "savepath": "/downloads", "ratioLimit": str(ratio), "seedingTimeLimit": "2940"}, bytes(content))
+        return seedbox.rpc("torrents/add", "POST", {"stopped": "true", "paused": "true", "savepath": savepath, "ratioLimit": str(ratio), "seedingTimeLimit": "2940", "category": category}, bytes(content))
 
     @app.get("/api/profiles")
     def listing(session=Depends(authorized)):
