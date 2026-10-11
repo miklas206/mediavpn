@@ -1,0 +1,18 @@
+services:
+  app:
+    user: "0:0"
+    environment:
+      MEDIAVPN_RUNTIME: docker
+      MEDIAVPN_HOST_DATA: ${MEDIAVPN_HOST_DATA:?Set absolute protected Linux host directory}
+      MEDIAVPN_GLUETUN_IMAGE: ${MEDIAVPN_GLUETUN_IMAGE:-qmcgaw/gluetun:v3.40.0}
+    volumes:
+      - type: bind
+        source: ${MEDIAVPN_HOST_DATA}
+        target: /data
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /var/run/docker.sock
+        target: /var/run/docker.sock
+        bind:
+          create_host_path: false
