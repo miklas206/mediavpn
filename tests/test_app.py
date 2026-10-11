@@ -42,3 +42,30 @@ def test_invalid_request_never_echoes_key(tmp_path):
     assert response.status_code == 422
     assert KEY not in response.text
     assert client.post("/api/profiles", json={"name": "   ", "configuration": CONFIG}).status_code == 422
+
+
+def test_forwarding_choice_preserves_profile_key_and_survives_restart(tmp_path):
+    with TestClient(create_app(tmp_path, "http://testserver")) as client:
+        login(client)
+        identifier = client.post("/api/profiles", json={"name": "Test", "configuration": CONFIG}).json()["id"]
+        path = tmp_path / "profiles" / f"{identifier}.conf"
+        original = path.read_bytes()
+        assert client.put(f"/api/profiles/{identifier}/forwarding", json={"enabled": True}).status_code == 200
+        assert client.get("/api/profiles").json()[0]["port_forwarding"] is True
+        assert path.read_bytes() == original
+        client.headers["X-MediaVPN-CSRF"] = "invalid"
+        assert client.put(f"/api/profiles/{identifier}/forwarding", json={"enabled": False}).status_code == 403
+    with TestClient(create_app(tmp_path, "http://testserver")) as restarted:
+        response = restarted.post("/api/auth/login", json={"username": "synthetic", "password": "synthetic-test-password"})
+        assert response.status_code == 200
+        assert restarted.get("/api/profiles").json()[0]["port_forwarding"] is True
+
+
+def test_machine_api_rejects_missing_or_wrong_key_without_disclosing_profiles(tmp_path):
+    with TestClient(create_app(tmp_path, "http://testserver")) as client:
+        assert client.get("/api/integration/status").status_code == 401
+        assert client.post("/api/integration/rpc", json={"path": "auth/login", "method": "POST"}, headers={"X-MediaSeed-Key": "wrong"}).status_code == 401
+        assert client.get("/api/seedbox").status_code == 401
+        login(client)
+        state = client.get("/api/seedbox").json()
+        assert state["ready"] is False and state["profiles"] == []

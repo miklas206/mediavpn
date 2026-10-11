@@ -8,10 +8,13 @@ Independent MediaHub-family VPN profile manager, using FjordVPN as a functional 
 - Multiple WireGuard profiles, bounded file upload, duplicate-key rejection, start/stop/remove.
 - Full IPv4 tunnel, public IP endpoint and a restricted configuration grammar; shell hooks and arbitrary directives rejected.
 - Per-profile Gluetun container with firewall enabled, no published ports, only NET_ADMIN and TUN device.
-- Status requires a running container and a successful Docker healthcheck no older than 90 seconds. This is tunnel health evidence, NOT independent public egress or leak-test proof.
+- Status requires a running container, a successful Docker healthcheck no older than 90 seconds, live Gluetun control status, public IPv4 and an active tun0 with IPv4. The Gluetun public-IP report is not an independent leak test.
+- Optional Proton NAT-PMP forwarding is a persistent profile setting. Generate the WireGuard profile with NAT-PMP enabled at Proton. Its actual assigned port is read from Gluetun, never assumed from the setting. Changing this setting stops the profile; Start recreates its container if necessary.
+- A bounded supervisor reconciles desired profiles and the selected MediaSeed client every five seconds. It creates a separate qBittorrent container in the selected VPN namespace, binds it to tun0, disables UPnP and synchronizes the assigned port. Missing health or port stops that client. VPN namespace changes recreate it with the same named configuration/download volumes. The original isolated client is retained stopped for rollback.
+- MediaSeed integration uses a separate owner-only token file, not VPN credentials or Docker socket sharing. The machine API only permits a fixed list of torrent operations; no arbitrary Docker commands, paths, WebUI proxy or destructive file removal are accepted. Mount only the token file read-only into MediaSeed and configure MEDIASEED_VPN_URL and MEDIASEED_VPN_TOKEN_FILE.
 - Standard preview saves profiles but cannot start VPNs. The privileged runtime must be deliberately enabled.
 
-**Not yet implemented:** Proton NAT-PMP port forwarding, public egress IP verification, TCP relay, MediaSeed traffic attachment, hub SSO, automatic app installation/update and live VPN credentials testing. Existing app traffic is NOT protected by merely creating or starting a profile. IPv6 leak protection and attached-app fail-closed behavior remain unverified: do not route downloads through this release.
+**Remaining verification/features:** independent egress/IPv6 leak tests, live stop/restart/port-change tests, TCP relay, hub SSO and generic app installation/update. MediaSeed attachment currently supports the existing mediaseed-preview Compose project with named volumes; other installations are rejected. Do not claim full FjordVPN parity. A saved/healthy profile alone does not prove that another app is attached.
 
 ## Preview Installation
 
@@ -35,7 +38,7 @@ docker compose -f compose.yaml -f compose.runtime.yaml config --quiet
 docker compose -f compose.yaml -f compose.runtime.yaml up -d --build
 ```
 
-Each new profile is saved stopped. Start only through its explicit Start action. The container remains isolated; no relay or app attachment is created. Stopping removes tunnel connectivity, not existing application containers. Removing a profile first stops/removes its owned tunnel; failures preserve the key. Profile keys cannot be downloaded through the API.
+Each new profile is saved stopped. Start only through its explicit Start action. Desired started profiles are restored by the supervisor. MediaSeed requires an explicitly selected profile and an observed forwarded port. Stopping the profile makes the managed torrent client unavailable and the supervisor stops it. Removing a profile first stops/removes its owned tunnel; failures preserve the key. Profile keys cannot be downloaded through the API.
 
 ## Tests And Upgrade
 

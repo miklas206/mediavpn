@@ -23,6 +23,7 @@ const statusNames = {disabled:'Runtime ikke aktiveret',stopped:'Stoppet',connect
 async function refresh() {
   const [runtime, profiles] = await Promise.all([api('runtime'),api('profiles')]);
   document.querySelector('#runtime-state').textContent = runtime.enabled ? 'VPN-runtime aktiveret · status kontrolleret nu' : 'Preview · tunnelstart er blokeret. Ingen trafik føres gennem VPN endnu.';
+  document.querySelector('#seedbox-state').textContent = runtime.mediaSeedConnected ? 'Forbundet gennem verificeret VPN' : runtime.seedbox?.reason || 'Ikke tilsluttet';
   const target = document.querySelector('#profiles'); target.replaceChildren();
   if (!profiles.length) target.append(node('p','Ingen forbindelser endnu.','empty'));
   for (const profile of profiles) {
@@ -31,6 +32,10 @@ async function refresh() {
     const controls = node('div',undefined,'actions');
     const start = control('Start',async()=>{await api(`profiles/${profile.id}/start`,{}); await refresh(); notice('Start anmodet. Forbindelsen kontrolleres.','success');},'primary'); start.disabled = !runtime.enabled;
     const stop = control('Stop',async()=>{await api(`profiles/${profile.id}/stop`,{}); await refresh(); notice('Forbindelsen er stoppet.','success');}); stop.disabled = !runtime.enabled;
+    const forwarding = node('label'); const toggle = node('input'); toggle.type = 'checkbox'; toggle.checked = profile.port_forwarding === true; toggle.disabled = !runtime.enabled;
+    forwarding.append(toggle, node('span', 'Proton port-forwarding (NAT-PMP)'));
+    toggle.onchange = () => action(toggle, async () => { if (!confirm('Dette stopper tunnelen. Aktivér kun med en Proton-profil oprettet med NAT-PMP. Start profilen igen efter ændringen.')) { toggle.checked = !toggle.checked; return; } await api(`profiles/${profile.id}/forwarding`, {enabled: toggle.checked}, 'PUT'); await refresh(); notice('Port-forwarding-valget er gemt. Profilen er stoppet; start den igen.', 'success'); });
+    details.append(forwarding);
     controls.append(start,stop,control('Fjern',async()=>{if (!confirm(`Stop og fjern ${profile.name}? Profilens private nøgle slettes.`)) return; await api('profiles/'+profile.id,undefined,'DELETE'); await refresh(); notice('Forbindelsen er fjernet.','success');},'danger'));
     item.append(details,controls); target.append(item);
   }
@@ -41,5 +46,6 @@ document.querySelector('#logout').onclick = event => action(event.target,async()
 document.querySelector('#add').onclick = () => dialog.showModal();
 document.querySelector('#close-dialog').onclick = () => dialog.close();
 document.querySelector('#refresh').onclick = event => action(event.target,refresh);
-document.querySelector('#profile-form').onsubmit = async event => {event.preventDefault(); const form = event.target; await action(form.querySelector('button[type="submit"]'),async()=>{const file = document.querySelector('#configuration').files[0]; if (!file || file.size > 16384) throw new Error('Vælg en WireGuard-fil på højst 16 KiB.'); await api('profiles',{name:form.elements.namedItem('name').value,configuration:await file.text()}); form.reset(); dialog.close(); await refresh(); notice('Forbindelsen er gemt og ikke startet.','success');});};
+document.querySelector('#profile-form').onsubmit = async event => {event.preventDefault(); const form = event.target; await action(form.querySelector('button[type="submit"]'),async()=>{const file = document.querySelector('#configuration').files[0]; if (!file || file.size > 16384) throw new Error('Vælg en WireGuard-fil på højst 16 KiB.'); await api('profiles',{name:form.elements.namedItem('name').value,configuration:await file.text(),port_forwarding:form.elements.namedItem('port_forwarding').checked}); form.reset(); dialog.close(); await refresh(); notice('Forbindelsen er gemt og ikke startet.','success');});};
 (async()=>{try { needsSetup = (await api('auth/status')).needsSetup; document.querySelector('#identity-title').textContent = needsSetup ? 'En frisk begyndelse.' : 'Velkommen tilbage.'; document.querySelector('#identity-description').textContent = needsSetup ? 'Opret din lokale MediaVPN-administrator.' : 'Log ind på MediaVPN.'; document.querySelector('#login-submit').textContent = needsSetup ? 'Opret administrator' : 'Log ind'; if (!needsSetup) { try { csrf = (await api('auth/me')).csrf; await workspace(); } catch {} } } catch(error) { notice(error.message); }})();
+setInterval(() => { if (!document.hidden && !document.querySelector('#workspace').hidden && !busy) refresh().catch(() => {}); }, 15000);
