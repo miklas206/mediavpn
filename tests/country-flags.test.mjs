@@ -7,7 +7,7 @@ const root = new URL('../mediavpn/static/', import.meta.url);
 const source = readFileSync(new URL('app.js', root), 'utf8');
 const begin = source.indexOf('function countryCode(');
 const end = source.indexOf('let serverProfile;', begin);
-const context = vm.createContext({node: () => ({}), element: () => ({})});
+const context = vm.createContext({locale: () => 'da-DK', t: text => text, node: () => ({}), element: () => ({})});
 vm.runInContext(source.slice(begin, end), context);
 
 test('every country in the Proton catalog resolves to a bundled SVG flag', () => {

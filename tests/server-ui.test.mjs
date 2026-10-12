@@ -10,15 +10,15 @@ test('server selection offers manual fallback and sends only the chosen country'
     showModal() {this.open = true;}, close() {this.open = false;}, matches: () => false});
   const find = key => {if (!nodes.has(key)) nodes.set(key, create()); return nodes.get(key);};
   const writes = [];
-  const context = vm.createContext({document: {querySelector: find, querySelectorAll: () => [], createElement: create},
+  const context = vm.createContext({document: {querySelector: find, querySelectorAll: () => [], createElement: create, addEventListener() {}},
     setInterval() {}, setTimeout() {}, clearTimeout() {}, confirm: () => true,
     fetch: async (url, options) => {
       if (options.method === 'PUT') writes.push([url, JSON.parse(options.body)]);
       return {ok: true, json: async () => url === '/api/proton/countries' ? {countries: ['Denmark', 'Germany']} : url === '/api/proton/recommendations' ? {recommendations: [{country: 'Denmark', server: 'dk-01.protonvpn.net', latencyMs: 10}], tested: 4, measuredAt: Date.now() / 1000} : {needsSetup: true}};
     },
   });
-  vm.runInContext(readFileSync(new URL('../mediavpn/static/app.js', import.meta.url), 'utf8'), context);
-  context.refresh = async () => {};
+  vm.runInContext(readFileSync(new URL('../mediavpn/static/i18n.js', import.meta.url), 'utf8') + '\n' + readFileSync(new URL('../mediavpn/static/app.js', import.meta.url), 'utf8'), context);
+  context.MediaAppI18n.setLanguage('da'); context.refresh = async () => {};
   assert.equal(context.countryLabel('Albania'), 'Albanien');
   assert.equal(context.countryLabel('DE'), 'Tyskland');
   assert.equal(context.countryFlag('Albania').src, '/static/flags/al.svg');

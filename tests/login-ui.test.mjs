@@ -17,7 +17,7 @@ for (const status of [401, 403, 503]) {
     };
     const redirects = [];
     const context = vm.createContext({
-      document: { querySelector: find, querySelectorAll: () => [], createElement: element, body: element() },
+      document: { querySelector: find, querySelectorAll: () => [], createElement: element, body: element(), addEventListener() {} },
       location: { replace: url => redirects.push(url) }, setInterval() {}, setTimeout() {}, clearTimeout() {},
       fetch: async url => ({ ok: url === '/api/auth/status', status,
         json: async () => url === '/api/auth/status'
@@ -25,7 +25,7 @@ for (const status of [401, 403, 503]) {
           : { detail: status === 401 ? 'Sign in required' : 'MediaHub unavailable or denied' },
       }),
     });
-    vm.runInContext(readFileSync(new URL('../mediavpn/static/app.js', import.meta.url), 'utf8'), context);
+    vm.runInContext(readFileSync(new URL('../mediavpn/static/i18n.js', import.meta.url), 'utf8') + '\n' + readFileSync(new URL('../mediavpn/static/app.js', import.meta.url), 'utf8'), context);
     await context.initializeLogin();
     assert.equal(find('#login').hidden, true);
     assert.equal(redirects.length > 0, status === 401);

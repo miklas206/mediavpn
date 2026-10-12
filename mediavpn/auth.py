@@ -1,6 +1,7 @@
 import hashlib
 import secrets
 import time
+from typing import Literal
 
 from argon2 import PasswordHasher
 from argon2.exceptions import VerificationError
@@ -17,6 +18,7 @@ class Credentials(BaseModel):
     model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
     username: str = Field(min_length=1, max_length=80)
     password: str = Field(min_length=12, max_length=256)
+    language: Literal["en", "da"] = "en"
 
 
 def install_auth(app, database, base, hub_transport=None):
@@ -29,7 +31,9 @@ def install_auth(app, database, base, hub_transport=None):
             session = connection.execute("SELECT * FROM sessions WHERE digest=? AND expires>?", (digest, time.time())).fetchone()
         if not session:
             raise HTTPException(401, "Log ind for at fortsaette")
-        public = await hub.identity(digest) if hub.enabled else {"role": "administrator"}
+        with database() as connection:
+            account = connection.execute("SELECT language FROM accounts LIMIT 1").fetchone()
+        public = await hub.identity(digest) if hub.enabled else {"role": "administrator", "language": account[0] if account else "en"}
         if request.method not in {"GET", "HEAD"} and request.url.path != "/api/auth/logout" and public["role"] != "administrator":
             raise HTTPException(403, "App administrator access required")
         if request.method not in {"GET", "HEAD"} and not secrets.compare_digest(request.headers.get("X-MediaVPN-CSRF", ""), session["csrf"]):
@@ -51,7 +55,7 @@ def install_auth(app, database, base, hub_transport=None):
             connection.execute("BEGIN IMMEDIATE")
             if connection.execute("SELECT COUNT(*) FROM accounts").fetchone()[0]:
                 raise HTTPException(409, "Administrator findes allerede")
-            connection.execute("INSERT INTO accounts VALUES (?,?)", (body.username, HASHER.hash(body.password)))
+            connection.execute("INSERT INTO accounts (username,password,language) VALUES (?,?,?)", (body.username, HASHER.hash(body.password), body.language))
         return {"created": True}
 
     @app.post("/api/auth/login")
@@ -84,7 +88,7 @@ def install_auth(app, database, base, hub_transport=None):
 
     @app.get("/api/auth/me")
     def me(session=Depends(authorized)):
-        return {key: session[key] for key in ("csrf", "id", "username", "role") if key in session}
+        return {key: session[key] for key in ("csrf", "id", "username", "role", "language") if key in session}
 
     @app.post("/api/auth/logout")
     def logout(response: Response, session=Depends(authorized)):

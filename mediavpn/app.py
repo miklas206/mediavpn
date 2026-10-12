@@ -5,7 +5,7 @@ import secrets
 import sqlite3
 import threading
 import time
-from contextlib import contextmanager, asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -18,9 +18,9 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from mediavpn.auth import install_auth
 from mediavpn.configuration import parse_wireguard
+from mediavpn.proton import ProtonSelectionError, ProtonSelector, selected_configuration
 from mediavpn.runtime import Runtime
 from mediavpn.seedbox import Seedbox
-from mediavpn.proton import ProtonSelectionError, ProtonSelector, selected_configuration
 
 STATIC = Path(__file__).parent / "static"
 logger = logging.getLogger(__name__)
@@ -86,6 +86,8 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
             CREATE TABLE IF NOT EXISTS attempts (address TEXT PRIMARY KEY, count INTEGER NOT NULL, started REAL NOT NULL);
             CREATE TABLE IF NOT EXISTS profiles (id TEXT PRIMARY KEY, name TEXT NOT NULL, fingerprint TEXT UNIQUE NOT NULL, endpoint TEXT NOT NULL, port INTEGER NOT NULL);
         """)
+        if "language" not in {row["name"] for row in connection.execute("PRAGMA table_info(accounts)")}:
+            connection.execute("ALTER TABLE accounts ADD COLUMN language TEXT NOT NULL DEFAULT 'da'")
     (data / "mediavpn.sqlite").chmod(0o600)
     with database() as connection:
         columns = {row["name"] for row in connection.execute("PRAGMA table_info(profiles)")}
