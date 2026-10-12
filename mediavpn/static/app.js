@@ -21,6 +21,23 @@ function node(tag, text, className) { const element = document.createElement(tag
 async function action(button, handler) { if (busy) return; busy = true; button.disabled = true; try { await handler(); } catch(error) { notice(error.message); } finally { busy = false; button.disabled = false; } }
 function control(text, handler, className) { const button = node('button',text,className); button.type = 'button'; button.onclick = () => action(button,handler); return button; }
 const statusNames = {disabled:'Runtime ikke aktiveret',stopped:'Stoppet',connected:'Forbundet',unverified:'Ikke verificeret',starting:'Starter',unavailable:'Runtime utilgængelig'};
+function countryFlag(country) {
+  if (!country) return null;
+  let code = /^[A-Z]{2}$/.test(country) ? country : null;
+  try {
+    const english = new Intl.DisplayNames(['en'], {type: 'region'});
+    for (let first = 65; !code && first <= 90; first++) for (let second = 65; second <= 90; second++) {
+      const candidate = String.fromCharCode(first, second);
+      if (english.of(candidate) === country) { code = candidate; break; }
+    }
+  } catch {}
+  if (!code) return null;
+  const flag = node('img', undefined, 'country-flag');
+  flag.src = `/static/flags/${code.toLowerCase()}.svg`;
+  flag.alt = ''; flag.width = 20; flag.height = 15;
+  flag.onerror = () => { flag.hidden = true; };
+  return flag;
+}
 function countryLabel(country) {
   if (!country) return 'Land ukendt';
   try {
@@ -69,6 +86,7 @@ async function loadRecommendations(cycle) {
     for (const row of result.recommendations.slice(0, 6)) {
       const line = node('tr'); const country = node('td');
       const choose = node('button', row.country); choose.type = 'button'; choose.onclick = () => { document.querySelector('#server-country').value = row.country; };
+      const flag = countryFlag(row.country); if (flag) choose.append(flag);
       country.append(choose); line.append(country, node('td', `${row.latencyMs} ms`), node('td', row.server)); body.append(line);
     }
     table.append(head, body); document.querySelector('#server-recommendations').replaceChildren(table);
@@ -95,7 +113,9 @@ async function refresh() {
     const item = node('article',undefined,'profile'); const details = node('div');
     details.append(node('h2',profile.name),node('span',statusNames[profile.state] || 'Ukendt','status ' + (profile.healthy ? 'connected' : '')),node('p',`WireGuard · ${profile.endpoint}:${profile.port}`),node('p',`Offentlig IP: ${profile.publicIp || 'Ikke verificeret'} · VPN-port: ${profile.forwardedPort || 'Ikke verificeret'}`));
     const controls = node('div',undefined,'actions');
-    details.append(node('p', `Land: ${countryLabel(profile.country)}`));
+    const country = node('p', `Land: ${countryLabel(profile.country)}`, 'country-label');
+    const flag = countryFlag(profile.country); if (flag) country.append(flag);
+    details.append(country);
     details.append(node('p', profile.auto_country ? `Automatisk servervalg · ${profile.auto_country === '*' ? 'på tværs af lande' : profile.auto_country}${profile.selectedServer ? ' · ' + profile.selectedServer + ' · ' + profile.latencyMs + ' ms ved valg' : ' · vælges ved start'}` : 'Server fra din konfiguration'));
     controls.append(control('Servervalg', () => chooseServer(profile)));
     const start = control('Start',async()=>{await api(`profiles/${profile.id}/start`,{}); await refresh(); notice('Start anmodet. Forbindelsen kontrolleres.','success');},'primary'); start.disabled = !runtime.enabled;

@@ -1,0 +1,4 @@
+flag-icons by Panayiotis Lipiridis
+https://github.com/lipis/flag-icons
+Revision: 086f7e97d657358203916dbe84f61c2bccaa81eb
+4x3 country SVG assets, MIT license (see LICENSE).

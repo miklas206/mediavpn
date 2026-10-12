@@ -21,6 +21,9 @@ test('server selection offers manual fallback and sends only the chosen country'
   context.refresh = async () => {};
   assert.equal(context.countryLabel('Albania'), 'Albanien');
   assert.equal(context.countryLabel('DE'), 'Tyskland');
+  assert.equal(context.countryFlag('Albania').src, '/static/flags/al.svg');
+  assert.equal(context.countryFlag('Denmark').src, '/static/flags/dk.svg');
+  assert.equal(context.countryFlag(null), null);
   await context.chooseServer({id: 'synthetic', auto_country: null});
   assert.equal(find('#server-dialog').open, true);
   assert.deepEqual(find('#server-country').children.map(row => row.value), ['', '*', 'Denmark', 'Germany']);
