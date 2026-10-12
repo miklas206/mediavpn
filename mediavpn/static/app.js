@@ -53,32 +53,48 @@ function countryLabel(country) {
 }
 let serverProfile;
 let serverDialogCycle = 0;
+let serverMeasurementCycle = 0;
 const serverDialog = document.querySelector('#server-dialog');
+function setServerChoice(value) {
+  document.querySelector('#server-country').value = value;
+  document.querySelector('#server-selected').textContent = value === '*' ? 'Valgt: Automatisk · alle lande' : value ? `Valgt: ${countryLabel(value)}` : 'Valgt: Serveren fra min konfiguration';
+  for (const button of document.querySelectorAll('#server-dialog [data-server-choice]')) button.setAttribute('aria-pressed', String(button.dataset.serverChoice === value));
+}
+function serverChoice(text, value) {
+  const button = node('button', text);
+  button.type = 'button'; button.dataset.serverChoice = value;
+  button.onclick = () => setServerChoice(value);
+  return button;
+}
 async function chooseServer(profile) {
   const cycle = ++serverDialogCycle;
   serverProfile = profile.id;
-  const select = document.querySelector('#server-country');
-  const manual = node('option', 'Brug serveren i min konfiguration'); manual.value = '';
-  const automatic = node('option', 'Automatisk · bedste målte server på tværs af lande'); automatic.value = '*';
-  select.replaceChildren(manual, automatic); select.disabled = true;
+  document.querySelector('#server-choices').replaceChildren(serverChoice('Automatisk · alle lande', '*'), serverChoice('Brug serveren fra min konfiguration', ''));
+  const countries = document.querySelector('#server-countries'); countries.replaceChildren();
+  document.querySelector('#server-country-search').value = '';
+  setServerChoice(profile.auto_country || '');
   document.querySelector('#server-recommendations').replaceChildren();
   document.querySelector('#server-measurement').textContent = 'Måler anbefalede lande fra din server…';
   document.querySelector('#save-server').disabled = true;
   serverDialog.showModal();
   try {
     const result = await api('proton/countries');
+    if (cycle !== serverDialogCycle || !serverDialog.open) return;
     for (const country of result.countries) {
-      const option = node('option', `Automatisk · ${country}`); option.value = country; select.append(option);
+      const button = serverChoice(countryLabel(country), country);
+      const flag = countryFlag(country); if (flag) button.append(flag);
+      countries.append(button);
     }
-    select.value = profile.auto_country || '';
+    setServerChoice(document.querySelector('#server-country').value);
   } catch (error) { notice(error.message); }
-  finally { select.disabled = false; document.querySelector('#save-server').disabled = false; }
+  finally { document.querySelector('#save-server').disabled = false; }
   void loadRecommendations(cycle);
 }
 async function loadRecommendations(cycle, force = false) {
+  const measurement = ++serverMeasurementCycle;
   try {
     const result = force ? await api('proton/recommendations/refresh', {}) : await api('proton/recommendations');
-    if (cycle !== serverDialogCycle || !serverDialog.open) return;
+    if (measurement !== serverMeasurementCycle || cycle !== serverDialogCycle || !serverDialog.open) return;
     document.querySelector('#server-measurement').textContent = `Anbefalet efter ${result.tested} målte kandidater · ${new Date(result.measuredAt * 1000).toLocaleTimeString('da-DK')} · laveste belastning prioriteres, derefter svartid. Målingen kan være op til ét minut gammel.`;
     if (!result.loadAvailable) document.querySelector('#server-measurement').textContent += ' Proton udleverer ikke belastningsdata lige nu; anbefalingerne bruger kun målt svartid.';
     const table = node('table');
@@ -86,15 +102,20 @@ async function loadRecommendations(cycle, force = false) {
     const body = node('tbody');
     for (const row of result.recommendations.slice(0, 6)) {
       const line = node('tr'); const country = node('td');
-      const choose = node('button', row.country); choose.type = 'button'; choose.onclick = () => { document.querySelector('#server-country').value = row.country; };
+      const choose = serverChoice(countryLabel(row.country), row.country);
       const flag = countryFlag(row.country); if (flag) choose.append(flag);
       country.append(choose); line.append(country, node('td', row.loadPercent == null ? 'Ukendt' : `${row.loadPercent} %`), node('td', `${row.latencyMs} ms`), node('td', row.server)); body.append(line);
     }
     table.append(head, body); document.querySelector('#server-recommendations').replaceChildren(table);
+    setServerChoice(document.querySelector('#server-country').value);
   } catch {
-    if (cycle === serverDialogCycle) document.querySelector('#server-measurement').textContent = 'Anbefalinger kunne ikke måles. Du kan stadig vælge land; svartiden måles ved start.';
+    if (measurement === serverMeasurementCycle && cycle === serverDialogCycle) document.querySelector('#server-measurement').textContent = 'Anbefalinger kunne ikke måles. Du kan stadig vælge land; svartiden måles ved start.';
   }
 }
+document.querySelector('#server-country-search').oninput = event => {
+  const query = event.target.value.trim().toLocaleLowerCase('da-DK');
+  for (const button of document.querySelectorAll('#server-countries button')) button.hidden = !`${button.textContent} ${button.dataset.serverChoice}`.toLocaleLowerCase('da-DK').includes(query);
+};
 document.querySelector('#refresh-servers').onclick = event => action(event.currentTarget, async () => { document.querySelector('#server-measurement').textContent = 'Henter friske data og måler serverne…'; await loadRecommendations(serverDialogCycle, true); });
 document.querySelector('#close-server').onclick = () => serverDialog.close();
 document.querySelector('#server-form').onsubmit = async event => {

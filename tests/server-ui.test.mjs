@@ -10,7 +10,7 @@ test('server selection offers manual fallback and sends only the chosen country'
     showModal() {this.open = true;}, close() {this.open = false;}, matches: () => false});
   const find = key => {if (!nodes.has(key)) nodes.set(key, create()); return nodes.get(key);};
   const writes = [];
-  const context = vm.createContext({document: {querySelector: find, createElement: create},
+  const context = vm.createContext({document: {querySelector: find, querySelectorAll: () => [], createElement: create},
     setInterval() {}, setTimeout() {}, clearTimeout() {}, confirm: () => true,
     fetch: async (url, options) => {
       if (options.method === 'PUT') writes.push([url, JSON.parse(options.body)]);
@@ -26,7 +26,8 @@ test('server selection offers manual fallback and sends only the chosen country'
   assert.equal(context.countryFlag(null), null);
   await context.chooseServer({id: 'synthetic', auto_country: null});
   assert.equal(find('#server-dialog').open, true);
-  assert.deepEqual(find('#server-country').children.map(row => row.value), ['', '*', 'Denmark', 'Germany']);
+  assert.deepEqual(find('#server-choices').children.map(row => row.dataset.serverChoice), ['*', '']);
+  assert.deepEqual(find('#server-countries').children.map(row => row.dataset.serverChoice), ['Denmark', 'Germany']);
   assert.equal(find('#server-country').value, '');
   find('#server-country').value = 'Denmark';
   await find('#server-form').onsubmit({preventDefault() {}});

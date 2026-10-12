@@ -96,7 +96,7 @@ Upload en separat Proton WireGuard-profil med NAT-PMP aktiveret, og markér
 Proton port-forwarding. Under profilens **Servervalg** kan administratoren vælge
 automatisk valg i et bestemt land, automatisk valg på tværs af lande eller
 beholde serveren fra konfigurationen. Dialogen viser de bedste målte lande
-med servernavn og svartid; alle lande kan vælges i listen. Anbefalinger måles
+med servernavn, belastning og svartid. Automatisk og konfigurationens server vælges med knapper, ligesom anbefalede lande. Alle lande kan findes i en søgbar knapliste under Alle lande. Anbefalinger måles
 fra MediaVPN-værten og caches i ét minut. De ændrer aldrig en aktiv tunnel.
 Servervalg stopper kort den tilknyttede torrentklient og tunnelen. En aktiv eller ønsket startet profil genforbindes automatisk af supervisoren; en stoppet profil forbliver stoppet. Det gemte startønske overlever app-genstart. MediaSeed bliver bundet til den nye tunnels netværk og får dens verificerede NAT-PMP-port uden at ændre torrenternes start/stop-valg.
 
@@ -126,3 +126,5 @@ Torrent imports and `setShareLimits` use `shareLimitAction=Stop`, including comp
 
 
 Serveranbefalinger viser målt svartid og rapporteret belastning separat. Automatisk valg prioriterer laveste belastning blandt de målte, tilgængelige kandidater, derefter svartid. Belastning matches på IPv4-endpoint og WireGuard-public key fra Protons API; begge servere skal være aktive og P2P-egnede. Data caches højst ét minut. Hvis API-adgang eller data mangler, står belastning som Ukendt, og valget bruger kun svartid. En WireGuard-fil giver ikke i sig selv adgang til Protons konto-API; der gemmes ingen Proton-loginoplysninger. Opdater anbefalinger genhenter katalog og belastningsdata og måler igen uden at skifte den aktive server. IPv4 og P2P/port-forwarding er faste krav ved automatisk valg.
+
+Latency probes run in the MediaVPN app process on its ordinary Docker bridge, not in the Gluetun tunnel or the attached client's network namespace. Recommendation refresh changes neither VPN selection nor attached-client settings. Beta verification compared the app's direct public egress with the active VPN's public IP and confirmed separate egress paths.
