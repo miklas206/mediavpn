@@ -38,7 +38,7 @@ docker compose -f compose.yaml -f compose.runtime.yaml config --quiet
 docker compose -f compose.yaml -f compose.runtime.yaml up -d --build
 ```
 
-Each new profile is saved stopped. Start only through its explicit Start action. Desired started profiles are restored by the supervisor. MediaSeed requires an explicitly selected profile and an observed forwarded port. Stopping the profile makes the managed torrent client unavailable and the supervisor stops it. Removing a profile first stops/removes its owned tunnel; failures preserve the key. Profile keys cannot be downloaded through the API.
+Each new profile is saved stopped. Start only through its explicit Start action. Desired started profiles are restored by the supervisor. Installing MediaVPN or starting a profile does not attach MediaSeed. Select MediaVPN and a profile explicitly inside MediaSeed, then save that choice. MediaSeed requires an observed forwarded port. Stopping the profile makes the managed torrent client unavailable and the supervisor stops it. Disconnecting inside MediaSeed disables the integration and removes the owned client container with `v=False, force=False`, preserving configuration/download volumes and leaving the VPN profile independent. MediaVPN can then be removed while MediaSeed remains installed. Removing a profile first stops/removes its owned tunnel; failures preserve the key. Profile keys cannot be downloaded through the API.
 
 ## Tests And Upgrade
 

@@ -112,19 +112,22 @@ class Seedbox:
             raise ValueError("Multiple managed torrent clients")
         return rows[0] if rows else None
 
-    def stop(self):
+    def stop(self, remove=False):
         child = self.child()
         if child:
             child.reload()
             if child.attrs.get("State", {}).get("Running"):
                 child.stop(timeout=10)
+            if remove:
+                child.remove(v=False, force=False)
 
     def reconcile(self):
         with self.lock:
             settings = self.settings()
             if not settings["enabled"]:
                 if self.runtime.enabled:
-                    self.stop()
+                    self.stop(remove=True)
+                self.error = None
                 return
             try:
                 observed = self.runtime.status(settings["profileId"])

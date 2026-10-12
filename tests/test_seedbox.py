@@ -44,6 +44,23 @@ def test_settings_and_machine_token_survive_restart(tmp_path):
     assert restarted.settings() == {"enabled": False, "profileId": None}
 
 
+def test_disconnect_removes_only_owned_client_and_preserves_volumes(tmp_path):
+    calls = []
+    child = SimpleNamespace(
+        attrs={"State": {"Running": True}}, reload=lambda: None,
+        stop=lambda **kwargs: calls.append(("stop", kwargs)),
+        remove=lambda **kwargs: calls.append(("remove", kwargs)),
+    )
+    controller = Seedbox(SimpleNamespace(enabled=True), tmp_path)
+    controller.child = lambda: child if not any(call[0] == "remove" for call in calls) else None
+    result = controller.configure("a" * 24, False)
+    assert result["enabled"] is False and not result["ready"]
+    assert calls == [("stop", {"timeout": 10}), ("remove", {"v": False, "force": False})]
+    assert controller.settings()["profileId"] == "a" * 24
+    controller.reconcile()
+    assert len(calls) == 2
+
+
 def test_embedded_commands_compile_and_write_correct_interface_keys(tmp_path):
     from mediavpn.seedbox import RPC_CODE, PREPARE_CODE
     import sys
