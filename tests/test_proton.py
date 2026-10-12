@@ -58,8 +58,29 @@ def test_global_probe_budget_is_bounded_and_countries_are_distributed():
     called = []
     service.probe = lambda address: called.append(address) or 5
     result = service.recommendations()
-    assert len(called) == 48
-    assert len(result["recommendations"]) == 24
+    assert len(called) == 40
+    assert len(result["recommendations"]) == 40
+    assert result["totalCountries"] == 40
+
+
+def test_global_selection_never_omits_a_fast_country_by_random_country_sampling():
+    service = selector()
+    service.rows = [{"country": "Country" + chr(65 + index), "hostname": "node.protonvpn.net", "key": PUBLIC, "ip": f"8.8.{index}.1"} for index in range(25)]
+    service.rows.append({"country": "Denmark", "hostname": "dk-01.protonvpn.net", "key": PUBLIC, "ip": "1.1.1.1"})
+    service.expires = 2000
+    service.sample = lambda rows, count: rows[:count]
+    service.probe = lambda ip: 3 if ip == "1.1.1.1" else 20
+    result = service.choose("*")
+    assert result["country"] == "Denmark"
+    assert result["tested"] == 26
+
+
+def test_catalog_keeps_provider_country_names_with_commas():
+    service = selector()
+    original = json.loads(service.fetch())
+    original["servers"][0]["country"] = "Palestine, State of"
+    service.fetch = lambda: json.dumps(original).encode()
+    assert service.countries() == ["Palestine, State of"]
 
 
 def test_failed_selection_never_starts_container_or_changes_original(tmp_path):

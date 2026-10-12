@@ -119,7 +119,7 @@ class ProtonSelector:
                 if not isinstance(row, dict) or row.get("vpn") != "wireguard" or row.get("port_forward") is not True:
                     continue
                 country, hostname, key = row.get("country"), row.get("hostname"), row.get("wgpubkey")
-                if not isinstance(country, str) or not re.fullmatch(r"[A-Za-z][A-Za-z .'-]{0,59}", country):
+                if not isinstance(country, str) or not re.fullmatch(r"[A-Za-z][A-Za-z .,'-]{0,59}", country):
                     continue
                 if not isinstance(hostname, str) or not re.fullmatch(r"[a-z0-9-]{1,90}\.protonvpn\.(?:net|com)", hostname):
                     continue
@@ -160,24 +160,22 @@ class ProtonSelector:
                 return sorted(random_pool, key=lambda row: row["loadPercent"])[:count]
             return self.sample(pool, min(count, len(pool)))
         if country == "*":
-            # Distribute a bounded global sample across countries, not large fleets.
+            # Cover every country rather than accidentally omit a nearby one.
+            # Still probe only a bounded endpoint sample within each country.
             countries = sorted({row["country"] for row in rows})
-            selected = self.sample(countries, min(24, len(countries)))
+            if len(countries) > 256:
+                raise ValueError("Serverlisten indeholder for mange lande")
+            per_country = 2 if len(countries) <= 24 else 1
             candidates = []
-            for name in selected:
+            for name in countries:
                 pool = [row for row in rows if row["country"] == name]
-                candidates.extend(candidates_for(pool, 2))
-            # Always include the globally least loaded countries in the bounded
-            # global sample when the provider actually supplies telemetry.
-            if loads:
-                selected = sorted(countries, key=lambda name: min((row["loadPercent"] for row in rows if row["country"] == name and row["loadPercent"] is not None), default=101))[:24]
-                candidates = [row for name in selected for row in candidates_for([row for row in rows if row["country"] == name], 2)]
+                candidates.extend(candidates_for(pool, per_country))
         else:
             pool = [row for row in rows if row["country"] == country]
             candidates = candidates_for(pool, 24)
         if not candidates:
             raise ValueError("Ingen Proton P2P-servere i det valgte land")
-        with ThreadPoolExecutor(max_workers=12) as pool:
+        with ThreadPoolExecutor(max_workers=24 if country == "*" else 12) as pool:
             measurements = list(pool.map(lambda row: self.probe(row["ip"]), candidates))
         ranked = sorted([(latency, row) for row, latency in zip(candidates, measurements) if type(latency) in (int, float) and 0 <= latency < 10000], key=lambda pair: (pair[1]["loadPercent"] if pair[1]["loadPercent"] is not None else 101, pair[0]))
         if not ranked:
@@ -195,7 +193,7 @@ class ProtonSelector:
             countries = {}
             for latency, row in ranked:
                 countries.setdefault(row["country"], {"country": row["country"], "server": row["hostname"], "latencyMs": round(latency, 1), "loadPercent": row["loadPercent"]})
-            self.recommended = {"recommendations": list(countries.values()), "tested": tested, "measuredAt": self.clock(), "loadMeasuredAt": self.loads_at, "loadAvailable": self.loads_at is not None}
+            self.recommended = {"recommendations": list(countries.values()), "tested": tested, "totalCountries": len(self.countries()), "measuredAt": self.clock(), "loadMeasuredAt": self.loads_at, "loadAvailable": self.loads_at is not None}
             self.measured_until = self.clock() + 60
             return self.recommended
 

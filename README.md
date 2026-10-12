@@ -102,9 +102,7 @@ Servervalg stopper kort den tilknyttede torrentklient og tunnelen. En aktiv elle
 
 Ved start måles to TCP-forbindelser til port 443 på op til 24 udvalgte
 P2P/WireGuard-endpoints i landet. Med belastningsdata måles de mindst belastede kandidater først; laveste belastning prioriteres, derefter gennemsnitlig svartid. Uden data vælges kandidater tilfældigt og rangeres efter svartid.
-Globalt valg (`auto_country="*"`) måler op til 48 kandidater fordelt på op til
-24 lande, prioriteret efter belastning når data findes, ellers tilfældigt. Det er den bedste blandt de målte kandidater,
-ikke en garanti for den bedste server i hele kataloget.
+Globalt valg (`auto_country="*"`) måler en kandidat fra hvert tilgængeligt land (maksimalt 256 lande); når kataloget indeholder højst 24 lande, måles op til to kandidater pr. land. Ved kendt belastning prioriteres landets mindst belastede kandidat. Op til 24 samtidige målinger holder ventetiden nede. Det er den bedste blandt de målte endpoints, ikke en garanti for den bedste server i hele kataloget.
 TCP-målingen viser ikke downloadhastighed; belastning kommer separat fra Proton. Serveren beholdes,
 mens tunnelen kører; et nyt start efter stop foretager et nyt valg.
 Ingen svar eller en ugyldig serverliste giver en fejl, uden automatisk fallback
@@ -128,3 +126,5 @@ Torrent imports and `setShareLimits` use `shareLimitAction=Stop`, including comp
 Serveranbefalinger viser målt svartid og rapporteret belastning separat. Automatisk valg prioriterer laveste belastning blandt de målte, tilgængelige kandidater, derefter svartid. Belastning matches på IPv4-endpoint og WireGuard-public key fra Protons API; begge servere skal være aktive og P2P-egnede. Data caches højst ét minut. Hvis API-adgang eller data mangler, står belastning som Ukendt, og valget bruger kun svartid. En WireGuard-fil giver ikke i sig selv adgang til Protons konto-API; der gemmes ingen Proton-loginoplysninger. Opdater anbefalinger genhenter katalog og belastningsdata og måler igen uden at skifte den aktive server. IPv4 og P2P/port-forwarding er faste krav ved automatisk valg.
 
 Latency probes run in the MediaVPN app process on its ordinary Docker bridge, not in the Gluetun tunnel or the attached client's network namespace. Recommendation refresh changes neither VPN selection nor attached-client settings. Beta verification compared the app's direct public egress with the active VPN's public IP and confirmed separate egress paths.
+
+Country flags normalize historical region aliases and Proton's country-name variants to current ISO codes in both apps. All 145 country names in the checked public Proton catalog are covered by SVG-existence regression tests. Recommendation responses include totalCountries, and the UI states coverage and that endpoint selection remains a sample.

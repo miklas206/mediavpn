@@ -21,16 +21,41 @@ function node(tag, text, className) { const element = document.createElement(tag
 async function action(button, handler) { if (busy) return; busy = true; button.disabled = true; try { await handler(); } catch(error) { notice(error.message); } finally { busy = false; button.disabled = false; } }
 function control(text, handler, className) { const button = node('button',text,className); button.type = 'button'; button.onclick = () => action(button,handler); return button; }
 const statusNames = {disabled:'Runtime ikke aktiveret',stopped:'Stoppet',connected:'Forbundet',unverified:'Ikke verificeret',starting:'Starter',unavailable:'Runtime utilgængelig'};
-function countryFlag(country) {
-  if (!country) return null;
-  let code = /^[A-Z]{2}$/.test(country) ? country : null;
+function countryCode(country) {
+  if (typeof country !== 'string' || !country.trim()) return null;
+  const name = country.trim();
+  if (/^[A-Za-z]{2}$/.test(name)) {
+    try { return new Intl.Locale('und-' + name.toUpperCase()).region; } catch { return name.toUpperCase(); }
+  }
+  const aliases = {
+    'bosnia and herzegovina': 'BA', 'brunei darussalam': 'BN', "cote d'ivoire": 'CI',
+    'czech republic': 'CZ', 'democratic republic of the congo': 'CD', 'hong kong': 'HK',
+    'korea': 'KR', "lao people's democratic republic": 'LA', 'macao': 'MO',
+    'palestine, state of': 'PS', 'russian federation': 'RU', 'syrian arab republic': 'SY', 'turkey': 'TR',
+  };
+  const normalized = name.toLocaleLowerCase('en');
+  if (aliases[normalized]) return aliases[normalized];
   try {
-    const english = new Intl.DisplayNames(['en'], {type: 'region'});
-    for (let first = 65; !code && first <= 90; first++) for (let second = 65; second <= 90; second++) {
-      const candidate = String.fromCharCode(first, second);
-      if (english.of(candidate) === country) { code = candidate; break; }
+    if (!countryCode.names) {
+      const names = new Map();
+      const english = new Intl.DisplayNames(['en'], {type: 'region'});
+      const danish = new Intl.DisplayNames(['da'], {type: 'region'});
+      for (let first = 65; first <= 90; first++) for (let second = 65; second <= 90; second++) {
+        const code = String.fromCharCode(first, second);
+        // Historical aliases (DD, CS, VD, YD, RH) can share modern names.
+        // Only map canonical codes to the actual bundled flag filenames.
+        if (new Intl.Locale('und-' + code).region !== code) continue;
+        for (const display of [english.of(code), danish.of(code)]) {
+          if (display !== code) names.set(display.toLocaleLowerCase('en'), code);
+        }
+      }
+      countryCode.names = names;
     }
-  } catch {}
+    return countryCode.names.get(normalized) || null;
+  } catch { return null; }
+}
+function countryFlag(country) {
+  const code = countryCode(country);
   if (!code) return null;
   const flag = node('img', undefined, 'country-flag');
   flag.src = `/static/flags/${code.toLowerCase()}.svg`;
@@ -40,15 +65,8 @@ function countryFlag(country) {
 }
 function countryLabel(country) {
   if (!country) return 'Land ukendt';
-  try {
-    const english = new Intl.DisplayNames(['en'], {type: 'region'});
-    const danish = new Intl.DisplayNames(['da'], {type: 'region'});
-    if (/^[A-Z]{2}$/.test(country)) return danish.of(country);
-    for (let first = 65; first <= 90; first++) for (let second = 65; second <= 90; second++) {
-      const code = String.fromCharCode(first, second);
-      if (english.of(code) === country) return danish.of(code);
-    }
-  } catch {}
+  const code = countryCode(country);
+  try { if (code) return new Intl.DisplayNames(['da'], {type: 'region'}).of(code); } catch {}
   return country;
 }
 let serverProfile;
@@ -95,7 +113,7 @@ async function loadRecommendations(cycle, force = false) {
   try {
     const result = force ? await api('proton/recommendations/refresh', {}) : await api('proton/recommendations');
     if (measurement !== serverMeasurementCycle || cycle !== serverDialogCycle || !serverDialog.open) return;
-    document.querySelector('#server-measurement').textContent = `Anbefalet efter ${result.tested} målte kandidater · ${new Date(result.measuredAt * 1000).toLocaleTimeString('da-DK')} · laveste belastning prioriteres, derefter svartid. Målingen kan være op til ét minut gammel.`;
+    document.querySelector('#server-measurement').textContent = `Stikprøve: ${result.tested} målte kandidater${result.totalCountries ? ` · svar fra ${result.recommendations.length} af ${result.totalCountries} lande` : ''} · ${new Date(result.measuredAt * 1000).toLocaleTimeString('da-DK')} · laveste belastning prioriteres, derefter svartid. Målingen kan være op til ét minut gammel.`;
     if (!result.loadAvailable) document.querySelector('#server-measurement').textContent += ' Proton udleverer ikke belastningsdata lige nu; anbefalingerne bruger kun målt svartid.';
     const table = node('table');
     const head = node('thead'); const heading = node('tr'); heading.append(node('th', 'Land'), node('th', 'Belastning'), node('th', 'Svartid'), node('th', 'Målt server')); head.append(heading);
