@@ -3,6 +3,7 @@ import os
 import secrets
 import sqlite3
 import threading
+import time
 from contextlib import contextmanager, asynccontextmanager
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -208,6 +209,29 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
     @app.get("/api/seedbox")
     def seedbox_status(session=Depends(authorized)):
         return seedbox_overview()
+
+    @app.get("/api/hub/overview")
+    async def hub_overview(request: Request):
+        hub = app.state.hub_login
+        scheme, _, token = request.headers.get("Authorization", "").partition(" ")
+        if not hub.enabled or scheme.lower() != "bearer" or not 40 <= len(token) <= 128:
+            raise HTTPException(401, "MediaHub overview authorization required")
+        identity = await hub.request("session?packageId=org.mediahub.mediavpn", token=token)
+        if identity.get("scope") != "overview" or identity.get("role") not in {"administrator", "user", "viewer"}:
+            raise HTTPException(403, "MediaHub overview access denied")
+        # Docker health checks are synchronous; keep them off the ASGI event loop.
+        import asyncio
+        def snapshot():
+            with database() as connection:
+                rows = connection.execute("SELECT id,name,auto_country FROM profiles ORDER BY name LIMIT 100").fetchall()
+            state = seedbox.status()
+            public = []
+            for profile in rows:
+                observed = runtime.status(profile["id"])
+                public.append({"id": profile["id"], "name": profile["name"], "state": observed.get("state", "unknown"), "healthy": bool(observed.get("healthy")), "country": observed.get("country"), "automatic": bool(profile["auto_country"])})
+            consumers = [{"name": "MediaSeed", "profileId": state.get("profileId"), "ready": bool(state.get("ready"))}] if state.get("enabled") else []
+            return {"checkedAt": time.time(), "enabled": runtime.enabled, "profiles": public, "consumers": consumers}
+        return await asyncio.to_thread(snapshot)
 
     @app.get("/api/integration/status")
     def integration_status(session=Depends(machine_authorized)):
