@@ -1,0 +1,35 @@
+import {readFileSync} from 'node:fs';
+import vm from 'node:vm';
+import assert from 'node:assert/strict';
+import test from 'node:test';
+
+test('server selection offers manual fallback and sends only the chosen country', async () => {
+  const nodes = new Map();
+  const create = () => ({value: '', dataset: {}, children: [], addEventListener() {},
+    append(...items) {this.children.push(...items);}, replaceChildren(...items) {this.children = items;},
+    showModal() {this.open = true;}, close() {this.open = false;}, matches: () => false});
+  const find = key => {if (!nodes.has(key)) nodes.set(key, create()); return nodes.get(key);};
+  const writes = [];
+  const context = vm.createContext({document: {querySelector: find, createElement: create},
+    setInterval() {}, setTimeout() {}, clearTimeout() {}, confirm: () => true,
+    fetch: async (url, options) => {
+      if (options.method === 'PUT') writes.push([url, JSON.parse(options.body)]);
+      return {ok: true, json: async () => url === '/api/proton/countries' ? {countries: ['Denmark', 'Germany']} : {needsSetup: true}};
+    },
+  });
+  vm.runInContext(readFileSync(new URL('../mediavpn/static/app.js', import.meta.url), 'utf8'), context);
+  context.refresh = async () => {};
+  await context.chooseServer({id: 'synthetic', auto_country: null});
+  assert.equal(find('#server-dialog').open, true);
+  assert.deepEqual(find('#server-country').children.map(row => row.value), ['', 'Denmark', 'Germany']);
+  assert.equal(find('#server-country').value, '');
+  find('#server-country').value = 'Denmark';
+  await find('#server-form').onsubmit({preventDefault() {}});
+  assert.deepEqual(writes[0], ['/api/profiles/synthetic/server-selection', {country: 'Denmark'}]);
+  assert.equal(find('#server-dialog').open, false);
+  await context.chooseServer({id: 'synthetic', auto_country: 'Denmark'});
+  assert.equal(find('#server-country').value, 'Denmark');
+  find('#server-country').value = '';
+  await find('#server-form').onsubmit({preventDefault() {}});
+  assert.equal(writes[1][1].country, null);
+});

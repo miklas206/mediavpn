@@ -21,6 +21,33 @@ function node(tag, text, className) { const element = document.createElement(tag
 async function action(button, handler) { if (busy) return; busy = true; button.disabled = true; try { await handler(); } catch(error) { notice(error.message); } finally { busy = false; button.disabled = false; } }
 function control(text, handler, className) { const button = node('button',text,className); button.type = 'button'; button.onclick = () => action(button,handler); return button; }
 const statusNames = {disabled:'Runtime ikke aktiveret',stopped:'Stoppet',connected:'Forbundet',unverified:'Ikke verificeret',starting:'Starter',unavailable:'Runtime utilgængelig'};
+let serverProfile;
+const serverDialog = document.querySelector('#server-dialog');
+async function chooseServer(profile) {
+  serverProfile = profile.id;
+  const select = document.querySelector('#server-country');
+  const manual = node('option', 'Brug serveren i min konfiguration'); manual.value = '';
+  select.replaceChildren(manual); select.disabled = true;
+  document.querySelector('#save-server').disabled = true;
+  serverDialog.showModal();
+  try {
+    const result = await api('proton/countries');
+    for (const country of result.countries) {
+      const option = node('option', `Automatisk · ${country}`); option.value = country; select.append(option);
+    }
+    select.value = profile.auto_country || '';
+  } catch (error) { notice(error.message); }
+  finally { select.disabled = false; document.querySelector('#save-server').disabled = false; }
+}
+document.querySelector('#close-server').onclick = () => serverDialog.close();
+document.querySelector('#server-form').onsubmit = async event => {
+  event.preventDefault();
+  await action(document.querySelector('#save-server'), async () => {
+    if (!confirm('Gem servervalg og stop forbindelsen? Start profilen igen efter ændringen.')) return;
+    await api(`profiles/${serverProfile}/server-selection`, {country: document.querySelector('#server-country').value || null}, 'PUT');
+    serverDialog.close(); await refresh(); notice('Servervalg gemt. Tryk Start for at forbinde.', 'success');
+  });
+};
 async function refresh() {
   const [runtime, profiles] = await Promise.all([api('runtime'),api('profiles')]);
   document.querySelector('#runtime-state').textContent = runtime.enabled ? 'VPN-runtime aktiveret · status kontrolleret nu' : 'Preview · tunnelstart er blokeret. Ingen trafik føres gennem VPN endnu.';
@@ -31,6 +58,8 @@ async function refresh() {
     const item = node('article',undefined,'profile'); const details = node('div');
     details.append(node('h2',profile.name),node('span',statusNames[profile.state] || 'Ukendt','status ' + (profile.healthy ? 'connected' : '')),node('p',`WireGuard · ${profile.endpoint}:${profile.port}`),node('p',`Offentlig IP: ${profile.publicIp || 'Ikke verificeret'} · VPN-port: ${profile.forwardedPort || 'Ikke verificeret'}`));
     const controls = node('div',undefined,'actions');
+    details.append(node('p', profile.auto_country ? `Automatisk servervalg · ${profile.auto_country}${profile.selectedServer ? ' · ' + profile.selectedServer + ' · ' + profile.latencyMs + ' ms ved valg' : ' · vælges ved start'}` : 'Server fra din konfiguration'));
+    controls.append(control('Servervalg', () => chooseServer(profile)));
     const start = control('Start',async()=>{await api(`profiles/${profile.id}/start`,{}); await refresh(); notice('Start anmodet. Forbindelsen kontrolleres.','success');},'primary'); start.disabled = !runtime.enabled;
     const stop = control('Stop',async()=>{await api(`profiles/${profile.id}/stop`,{}); await refresh(); notice('Forbindelsen er stoppet.','success');}); stop.disabled = !runtime.enabled;
     const forwarding = node('label'); const toggle = node('input'); toggle.type = 'checkbox'; toggle.checked = profile.port_forwarding === true; toggle.disabled = !runtime.enabled;

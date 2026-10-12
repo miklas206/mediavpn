@@ -30,9 +30,13 @@ def test_rpc_is_restricted_and_requires_readiness(tmp_path):
         controller.rpc("torrents/start", "POST", {"hashes": "a" * 40})
     assert caught.value.status_code == 409
     controller.status = lambda: {"ready": True}
+    controller.child = lambda: "synthetic"
+    controller.execute = lambda child, path, method, payload, content: payload
+    assert controller.rpc("torrents/delete", "POST", {"hashes": "a" * 40, "deleteFiles": "true"})["deleteFiles"] == "true"
+    assert "deleteFiles" not in controller.rpc("torrents/delete", "POST", {"hashes": "a" * 40})
     with pytest.raises(HTTPException) as caught:
-        controller.rpc("torrents/delete", "POST", {"hashes": "a" * 40, "deleteFiles": "true"})
-    assert caught.value.status_code == 403
+        controller.rpc("torrents/delete", "POST", {"hashes": "a" * 40, "deleteFiles": "maybe"})
+    assert caught.value.status_code == 422
 
 
 def test_settings_and_machine_token_survive_restart(tmp_path):

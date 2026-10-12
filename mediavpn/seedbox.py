@@ -314,6 +314,6 @@ class Seedbox:
             self.reconcile()
             if not self.status()["ready"]:
                 raise HTTPException(409, "VPN is not verified; torrent operation blocked")
-            if path == "torrents/delete" and str(payload.get("deleteFiles", "false")).lower() != "false":
-                raise HTTPException(403, "Deleting download files is not enabled")
+            if path == "torrents/delete" and payload.get("deleteFiles", "false") not in {"false", "true"}:
+                raise HTTPException(422, "Choose whether download files should be deleted")
             return self.execute(self.child(), path, method, payload, content)

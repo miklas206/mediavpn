@@ -90,3 +90,24 @@ python -m pytest tests -q
 Tests use synthetic keys and fake runtime objects. No live VPN access or traffic is involved. UI tests require Playwright and Chrome.
 
 Upgrade with a new app image and the same data mount. Keep the previous image tag for rollback; no automatic destructive data migration. Preserve running VPN containers and data when rolling back. Do not use compose down -v. Docker runtime and Gluetun image versions should be reviewed before production use.
+# Automatisk Proton-servervalg
+
+Upload en separat Proton WireGuard-profil med NAT-PMP aktiveret, og markér
+Proton port-forwarding. Under profilens **Servervalg** kan administratoren vælge
+automatisk valg i et bestemt land eller beholde serveren fra konfigurationen.
+Ændringer stopper den tilknyttede torrentklient og tunnelen; tryk Start bagefter.
+
+Ved start måles to TCP-forbindelser til port 443 på op til 24 tilfældigt udvalgte
+P2P/WireGuard-endpoints i landet. Den laveste gennemsnitlige svartid vinder.
+Det måler hverken serverbelastning eller downloadhastighed. Serveren beholdes,
+mens tunnelen kører; et nyt start efter stop foretager et nyt valg.
+Ingen svar eller en ugyldig serverliste giver en fejl, uden automatisk fallback
+til en uverificeret forbindelse. MediaSeeds eksisterende VPN-kontrol bevares.
+
+Den offentlige [Gluetun-serverliste](https://github.com/qdm12/gluetun-servers)
+hentes via HTTPS, begrænses til 2 MiB og caches i seks timer. Kun offentlige
+IPv4-adresser, Proton-hostnavne og P2P-servere med gyldige WireGuard-public keys
+bruges. Kataloger ældre end 120 dage afvises. Private keys sendes aldrig med
+forespørgslerne. En afledt lokal `.auto.conf` med adgang 0600 bruges til tunnelen;
+den uploadede `.conf` bevares. Profiler med PresharedKey kan kun bruges manuelt.
+Den samme private key må ikke bruges samtidigt på en anden maskine.

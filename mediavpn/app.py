@@ -18,6 +18,7 @@ from mediavpn.auth import install_auth
 from mediavpn.configuration import parse_wireguard
 from mediavpn.runtime import Runtime
 from mediavpn.seedbox import Seedbox
+from mediavpn.proton import ProtonSelector, selected_configuration
 
 STATIC = Path(__file__).parent / "static"
 
@@ -34,6 +35,11 @@ class Forwarding(BaseModel):
     enabled: bool
 
 
+class ServerSelection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    country: str | None = Field(default=None, min_length=1, max_length=60)
+
+
 class SeedboxSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
     enabled: bool
@@ -47,7 +53,7 @@ class TorrentRpc(BaseModel):
     payload: dict[str, str | int | float | bool] = Field(default_factory=dict, max_length=20)
 
 
-def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None):
+def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, selector=None):
     data = Path(data_dir or os.environ.get("MEDIAVPN_DATA", "/data"))
     data.mkdir(parents=True, exist_ok=True, mode=0o700)
     data.chmod(0o700)
@@ -58,6 +64,9 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None):
     if origin.scheme not in {"http", "https"} or not origin.hostname or origin.path or origin.username or origin.query or origin.fragment:
         raise ValueError("Expected an HTTP(S) origin")
     runtime = runtime or Runtime(data, os.environ.get("MEDIAVPN_RUNTIME") == "docker", os.environ.get("MEDIAVPN_HOST_DATA"))
+    selector = selector or ProtonSelector()
+    if isinstance(runtime, Runtime):
+        runtime.selector = selector
     lock = threading.Lock()
 
     @contextmanager
@@ -80,7 +89,26 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None):
             connection.execute("ALTER TABLE profiles ADD COLUMN port_forwarding INTEGER NOT NULL DEFAULT 0")
         if "desired" not in columns:
             connection.execute("ALTER TABLE profiles ADD COLUMN desired INTEGER NOT NULL DEFAULT 0")
+        if "auto_country" not in columns:
+            connection.execute("ALTER TABLE profiles ADD COLUMN auto_country TEXT")
     seedbox = Seedbox(runtime, data)
+
+    def start_profile(profile):
+        with seedbox.lock:
+            options = {"port_forwarding": bool(profile["port_forwarding"])}
+            if profile["auto_country"]:
+                options["auto_country"] = profile["auto_country"]
+                container = runtime.container(profile["id"])
+                if container:
+                    container.reload()
+                if not container or not container.attrs.get("State", {}).get("Running"):
+                    stop_attached(profile["id"])
+            runtime.start(profile["id"], **options)
+
+    def stop_attached(identifier):
+        settings = seedbox.settings()
+        if runtime.enabled and settings["enabled"] and settings["profileId"] == identifier:
+            seedbox.stop()
 
     @asynccontextmanager
     async def lifespan(app):
@@ -89,9 +117,9 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None):
             while not stopping.is_set():
                 try:
                     with lock, database() as connection:
-                        desired = connection.execute("SELECT id,port_forwarding FROM profiles WHERE desired=1").fetchall()
+                        desired = connection.execute("SELECT id,port_forwarding,auto_country FROM profiles WHERE desired=1").fetchall()
                         for profile in desired:
-                            runtime.start(profile["id"], port_forwarding=bool(profile["port_forwarding"]))
+                            start_profile(profile)
                     seedbox.reconcile()
                 except Exception:
                     try:
@@ -213,8 +241,35 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None):
     @app.get("/api/profiles")
     def listing(session=Depends(authorized)):
         with lock, database() as connection:
-            rows = connection.execute("SELECT id,name,endpoint,port,port_forwarding FROM profiles ORDER BY name").fetchall()
+            rows = connection.execute("SELECT id,name,endpoint,port,port_forwarding,auto_country FROM profiles ORDER BY name").fetchall()
             return [{**dict(row), "port_forwarding": bool(row["port_forwarding"]), **runtime.status(row["id"])} for row in rows]
+
+    @app.get("/api/proton/countries")
+    def countries(session=Depends(authorized)):
+        try:
+            return {"countries": selector.countries()}
+        except Exception:
+            raise HTTPException(503, "Protons serverliste kunne ikke hentes. Prøv igen senere.") from None
+
+    @app.put("/api/profiles/{identifier}/server-selection")
+    def server_selection(identifier: str, body: ServerSelection, session=Depends(authorized)):
+        with lock, seedbox.lock:
+            profile = find(identifier)
+            if body.country:
+                if not profile["port_forwarding"]:
+                    raise HTTPException(409, "Aktivér NAT-PMP/port-forwarding på Proton-profilen først")
+                try:
+                    if body.country not in selector.countries():
+                        raise ValueError()
+                    selected_configuration((profiles / f"{identifier}.conf").read_text(), selector.catalog()[0])
+                except Exception:
+                    raise HTTPException(422, "Land eller Proton-konfiguration kan ikke bruges til automatisk servervalg") from None
+            if profile["auto_country"] != body.country:
+                stop_attached(identifier)
+                runtime.stop(identifier)
+                with database() as connection:
+                    connection.execute("UPDATE profiles SET auto_country=?,desired=0 WHERE id=?", (body.country, identifier))
+            return {"saved": True, "auto_country": body.country, "restartRequired": True}
 
     @app.post("/api/profiles", status_code=201)
     def create(body: Profile, session=Depends(authorized)):
@@ -248,11 +303,12 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None):
     def action(identifier: str, action: str, session=Depends(authorized)):
         if action not in {"start", "stop"}:
             raise HTTPException(404, "Ukendt handling")
-        with lock:
+        with lock, seedbox.lock:
             profile = find(identifier)
             if action == "start":
-                runtime.start(identifier, port_forwarding=bool(profile["port_forwarding"]))
+                start_profile(profile)
             else:
+                stop_attached(identifier)
                 runtime.stop(identifier)
             with database() as connection:
                 connection.execute("UPDATE profiles SET desired=? WHERE id=?", (int(action == "start"), identifier))
@@ -261,22 +317,25 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None):
 
     @app.put("/api/profiles/{identifier}/forwarding")
     def forwarding(identifier: str, body: Forwarding, session=Depends(authorized)):
-        with lock:
+        with lock, seedbox.lock:
             find(identifier)
+            stop_attached(identifier)
             runtime.stop(identifier)
             with database() as connection:
-                connection.execute("UPDATE profiles SET port_forwarding=?,desired=0 WHERE id=?", (int(body.enabled), identifier))
+                connection.execute("UPDATE profiles SET port_forwarding=?,desired=0,auto_country=CASE WHEN ?=0 THEN NULL ELSE auto_country END WHERE id=?", (int(body.enabled), int(body.enabled), identifier))
             seedbox.reconcile()
         return {"saved": True, "port_forwarding": body.enabled, "restartRequired": True}
 
     @app.delete("/api/profiles/{identifier}")
     def remove(identifier: str, session=Depends(authorized)):
-        with lock:
+        with lock, seedbox.lock:
             find(identifier)
+            stop_attached(identifier)
             runtime.stop(identifier, remove=True)
             with database() as connection:
                 connection.execute("DELETE FROM profiles WHERE id=?", (identifier,))
             (profiles / f"{identifier}.conf").unlink(missing_ok=True)
+            (profiles / f"{identifier}.auto.conf").unlink(missing_ok=True)
         return {"removed": True}
 
     @app.get("/")

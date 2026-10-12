@@ -7,6 +7,7 @@ from pathlib import PurePosixPath
 
 from fastapi import HTTPException
 from .location import ExitLocation
+from .proton import ProtonSelector, selected_configuration
 
 OWNER = "org.mediahub.mediavpn.owner"
 
@@ -18,6 +19,7 @@ class Runtime:
         self.host_data = PurePosixPath(host_data) if host_data else None
         self.client = client
         self.location = location or ExitLocation()
+        self.selector = ProtonSelector()
         self.image = os.environ.get("MEDIAVPN_GLUETUN_IMAGE", "qmcgaw/gluetun:v3.40.0")
 
     def docker(self):
@@ -77,7 +79,8 @@ class Runtime:
                             country = self.location.country(str(public_ip))
                         except Exception:
                             country = None  # Informational location cannot close a verified tunnel gate.
-                        return {"state": "connected", "healthy": True, "checkedAt": time.time(), "publicIp": str(public_ip), "forwardedPort": forwarded_port, "country": country or None}
+                        labels = getattr(container, "labels", {})
+                        return {"state": "connected", "healthy": True, "checkedAt": time.time(), "publicIp": str(public_ip), "forwardedPort": forwarded_port, "country": country or None, "selectedServer": labels.get("org.mediahub.mediavpn.server"), "latencyMs": labels.get("org.mediahub.mediavpn.latency")}
             return {"state": state, "healthy": False, "checkedAt": time.time(), "publicIp": None, "forwardedPort": None}
         except HTTPException:
             raise
@@ -94,27 +97,43 @@ class Runtime:
             raise ValueError("Invalid VPN control response")
         return data
 
-    def start(self, identifier, port_forwarding=False):
+    def start(self, identifier, port_forwarding=False, auto_country=None):
         try:
             container = self.container(identifier)
+            mode = auto_country or ""
             if container:
                 container.reload()
                 expected = "on" if port_forwarding else "off"
                 environment = container.attrs.get("Config", {}).get("Env", [])
-                if f"VPN_PORT_FORWARDING={expected}" in environment and container.labels.get("org.mediahub.mediavpn.runtime") == "2":
+                compatible = container.labels.get("org.mediahub.mediavpn.auto-country", "") == mode
+                running = container.attrs.get("State", {}).get("Running")
+                if compatible and (not mode or running) and f"VPN_PORT_FORWARDING={expected}" in environment and container.labels.get("org.mediahub.mediavpn.runtime") == "2":
                     if not container.attrs.get("State", {}).get("Running"):
                         container.start()
                     return
                 container.stop(timeout=10)
                 container.remove()
+            filename = f"{identifier}.conf"
+            labels = {OWNER: "mediavpn", "org.mediahub.mediavpn.profile": identifier, "org.mediahub.mediavpn.runtime": "2"}
+            if auto_country:
+                if not port_forwarding:
+                    raise HTTPException(409, "Automatisk servervalg kræver Proton NAT-PMP")
+                server = self.selector.choose(auto_country)
+                configuration = selected_configuration((self.data / "profiles" / filename).read_text(), server)
+                filename = f"{identifier}.auto.conf"
+                descriptor = os.open(self.data / "profiles" / filename, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+                with os.fdopen(descriptor, "w") as output:
+                    output.write(configuration)
+                (self.data / "profiles" / filename).chmod(0o600)
+                labels.update({"org.mediahub.mediavpn.auto-country": auto_country, "org.mediahub.mediavpn.server": server["hostname"], "org.mediahub.mediavpn.latency": str(server["latencyMs"])})
             control_config = self.data / "gluetun-control.toml"
             control_config.write_text('[[roles]]\nname = "mediavpn-status"\nroutes = ["GET /v1/vpn/status", "GET /v1/publicip/ip", "GET /v1/openvpn/portforwarded"]\nauth = "none"\n')
             control_config.chmod(0o600)
             self.docker().containers.run(
                 self.image, name=f"mediavpn-{identifier}", detach=True,
-                labels={OWNER: "mediavpn", "org.mediahub.mediavpn.profile": identifier, "org.mediahub.mediavpn.runtime": "2"},
+                labels=labels,
                 environment={"VPN_SERVICE_PROVIDER": "custom", "VPN_TYPE": "wireguard", "FIREWALL": "on", "UPDATER_PERIOD": "0", "HTTP_CONTROL_SERVER_ADDRESS": "127.0.0.1:8000", "VPN_PORT_FORWARDING": "on" if port_forwarding else "off", "VPN_PORT_FORWARDING_PROVIDER": "protonvpn"},
-                volumes={str(self.host_data / "profiles" / f"{identifier}.conf"): {"bind": "/gluetun/wireguard/wg0.conf", "mode": "ro"}, str(self.host_data / control_config.name): {"bind": "/gluetun/auth/config.toml", "mode": "ro"}},
+                volumes={str(self.host_data / "profiles" / filename): {"bind": "/gluetun/wireguard/wg0.conf", "mode": "ro"}, str(self.host_data / control_config.name): {"bind": "/gluetun/auth/config.toml", "mode": "ro"}},
                 cap_add=["NET_ADMIN"], devices=["/dev/net/tun:/dev/net/tun:rwm"],
                 sysctls={"net.ipv6.conf.all.disable_ipv6": "1", "net.ipv6.conf.default.disable_ipv6": "1"},
                 security_opt=["no-new-privileges:true"], restart_policy={"Name": "no"},
