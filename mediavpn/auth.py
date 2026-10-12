@@ -7,6 +7,8 @@ from argon2.exceptions import VerificationError
 from fastapi import HTTPException, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
 
+from mediavpn.hub_auth import HubLogin
+
 HASHER = PasswordHasher()
 COOKIE = "mediavpn_session"
 
@@ -17,24 +19,33 @@ class Credentials(BaseModel):
     password: str = Field(min_length=12, max_length=256)
 
 
-def install_auth(app, database, base):
-    def authorized(request: Request):
+def install_auth(app, database, base, hub_transport=None):
+    hub = HubLogin(app, database, base, COOKIE, hub_transport)
+
+    async def authorized(request: Request):
         digest = hashlib.sha256(request.cookies.get(COOKIE, "").encode()).hexdigest()
         with database() as connection:
             session = connection.execute("SELECT * FROM sessions WHERE digest=? AND expires>?", (digest, time.time())).fetchone()
         if not session:
             raise HTTPException(401, "Log ind for at fortsaette")
+        public = await hub.identity(digest) if hub.enabled else {"role": "administrator"}
+        if request.method not in {"GET", "HEAD"} and request.url.path != "/api/auth/logout" and public["role"] != "administrator":
+            raise HTTPException(403, "App administrator access required")
         if request.method not in {"GET", "HEAD"} and not secrets.compare_digest(request.headers.get("X-MediaVPN-CSRF", ""), session["csrf"]):
             raise HTTPException(403, "Sessionen kunne ikke verificeres")
-        return dict(session)
+        return {**dict(session), **public}
 
     @app.get("/api/auth/status")
     def status():
+        if hub.enabled:
+            return {"needsSetup": False, "managed": True, "loginUrl": base + "/auth/hub/start"}
         with database() as connection:
             return {"needsSetup": connection.execute("SELECT COUNT(*) FROM accounts").fetchone()[0] == 0}
 
     @app.post("/api/auth/setup")
     def setup(body: Credentials):
+        if hub.enabled:
+            raise HTTPException(403, "Users are managed in MediaHub")
         with database() as connection:
             connection.execute("BEGIN IMMEDIATE")
             if connection.execute("SELECT COUNT(*) FROM accounts").fetchone()[0]:
@@ -44,6 +55,8 @@ def install_auth(app, database, base):
 
     @app.post("/api/auth/login")
     def login(body: Credentials, request: Request, response: Response):
+        if hub.enabled:
+            raise HTTPException(403, "Sign in through MediaHub")
         address = request.client.host if request.client else "local"
         now = time.time()
         with database() as connection:
@@ -70,12 +83,14 @@ def install_auth(app, database, base):
 
     @app.get("/api/auth/me")
     def me(session=Depends(authorized)):
-        return {"csrf": session["csrf"]}
+        return {key: session[key] for key in ("csrf", "id", "username", "role") if key in session}
 
     @app.post("/api/auth/logout")
     def logout(response: Response, session=Depends(authorized)):
         with database() as connection:
             connection.execute("DELETE FROM sessions WHERE digest=?", (session["digest"],))
+            if hub.enabled:
+                connection.execute("DELETE FROM hub_sessions WHERE digest=?", (session["digest"],))
         response.delete_cookie(COOKIE)
         return {"signedOut": True}
 

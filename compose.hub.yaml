@@ -1,0 +1,38 @@
+services:
+  app:
+    environment:
+      MEDIAVPN_BASE_URL: ${MEDIAVPN_BASE_URL:?Set the HTTPS MediaVPN origin}
+      MEDIAVPN_HUB_URL: ${MEDIAVPN_HUB_URL:?Set the HTTPS MediaHub origin}
+      MEDIAVPN_HUB_BROWSER_URL: ${MEDIAVPN_HUB_BROWSER_URL:-${MEDIAVPN_HUB_URL}}
+      MEDIAVPN_HUB_CA_FILE: /hub-trust/ca.pem
+    volumes:
+      - type: bind
+        source: ${MEDIAVPN_HUB_CA_PATH:?Set the public hub CA certificate}
+        target: /hub-trust/ca.pem
+        read_only: true
+        bind:
+          create_host_path: false
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import os,urllib.request,urllib.parse; origin=urllib.parse.urlsplit(os.environ['MEDIAVPN_BASE_URL']); urllib.request.urlopen(urllib.request.Request('http://127.0.0.1:18802/healthz',headers={'Host':origin.netloc}),timeout=3)"
+  sso-proxy:
+    image: traefik:v3.3
+    command:
+      - --entrypoints.websecure.address=:443
+      - --providers.file.filename=/config/routes.yaml
+      - --log.level=ERROR
+    ports:
+      - "${MEDIAVPN_BIND:-127.0.0.1}:${MEDIAVPN_TLS_PORT:-18803}:443"
+    volumes:
+      - ./hub-proxy.yaml:/config/routes.yaml:ro
+      - ${MEDIAVPN_TLS_PATH:?Set a protected app-specific TLS directory}:/app-tls:ro
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options: {max-size: 5m, max-file: "2"}

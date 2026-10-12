@@ -14,7 +14,28 @@ Independent MediaHub-family VPN profile manager, using FjordVPN as a functional 
 - MediaSeed integration uses a separate owner-only token file, not VPN credentials or Docker socket sharing. The machine API only permits a fixed list of torrent operations; no arbitrary Docker commands, paths, WebUI proxy or destructive file removal are accepted. Mount only the token file read-only into MediaSeed and configure MEDIASEED_VPN_URL and MEDIASEED_VPN_TOKEN_FILE.
 - Standard preview saves profiles but cannot start VPNs. The privileged runtime must be deliberately enabled.
 
-**Remaining verification/features:** independent egress/IPv6 leak tests, live stop/restart/port-change tests, TCP relay, hub SSO and generic app installation/update. MediaSeed attachment currently supports the existing mediaseed-preview Compose project with named volumes; other installations are rejected. Do not claim full FjordVPN parity. A saved/healthy profile alone does not prove that another app is attached.
+**Remaining verification/features:** independent egress/IPv6 leak tests, live stop/restart/port-change tests, TCP relay and generic app installation/update. MediaSeed attachment currently supports the existing mediaseed-preview Compose project with named volumes; other installations are rejected. Do not claim full FjordVPN parity. A saved/healthy profile alone does not prove that another app is attached.
+
+Managed MediaHub login is optional. Set `MEDIAVPN_HUB_URL` and `MEDIAVPN_BASE_URL`
+to trusted HTTPS origins, register `org.mediahub.mediavpn` at that origin in
+MediaHub's `MEDIAHUB_SSO_APP_URLS`, and mount only the public hub CA with
+`MEDIAVPN_HUB_CA_FILE`. The `compose.hub.yaml` overlay adds a TLS proxy on
+`MEDIAVPN_TLS_PORT` (default 18803), using a separate app certificate/key in
+`MEDIAVPN_TLS_PATH` and public CA file `MEDIAVPN_HUB_CA_PATH`. Keep existing runtime
+overrides and protected data mounts. The restricted machine API can retain HTTP
+18802 on the trusted network; browser SSO requires HTTPS. Never share the hub
+private key with the app or proxy.
+Set `MEDIAVPN_HUB_BROWSER_URL` when browser login uses a different public HTTPS
+hub origin. It defaults to `MEDIAVPN_HUB_URL`; server-side identity checks always
+use the verified `MEDIAVPN_HUB_URL`.
+
+Opening the managed app automatically starts state/PKCE hub login if its app
+session is missing. No separate app account or first password login is needed.
+Every authenticated request checks the hub session and current app permissions.
+App administrators can change runtime state; users and viewers can only read.
+Managed mode disables local setup/password login while retaining existing local
+accounts and profiles for rollback. Without `MEDIAVPN_HUB_URL`, standalone login
+continues to work. Login does not attach MediaSeed to MediaVPN.
 
 ## Preview Installation
 

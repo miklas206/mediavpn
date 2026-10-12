@@ -47,7 +47,7 @@ class TorrentRpc(BaseModel):
     payload: dict[str, str | int | float | bool] = Field(default_factory=dict, max_length=20)
 
 
-def create_app(data_dir=None, base_url=None, runtime=None):
+def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None):
     data = Path(data_dir or os.environ.get("MEDIAVPN_DATA", "/data"))
     data.mkdir(parents=True, exist_ok=True, mode=0o700)
     data.chmod(0o700)
@@ -136,7 +136,7 @@ def create_app(data_dir=None, base_url=None, runtime=None):
             response.headers["Cache-Control"] = "no-store"
         return response
 
-    authorized = install_auth(app, database, base)
+    authorized = install_auth(app, database, base, hub_transport)
 
     def machine_authorized(key: str = Header(default="", alias="X-MediaSeed-Key")):
         if not runtime.enabled or not key or not secrets.compare_digest(key, seedbox.token_path.read_text().strip()):
