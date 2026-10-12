@@ -34,6 +34,43 @@ def test_selection_filters_private_addresses_ranks_latency_and_preserves_key():
         selector(lambda address: None).choose("Denmark")
 
 
+def test_global_selection_and_recommendations_cache():
+    calls = []
+    service = selector(lambda address: calls.append(address) or (5 if address == "1.1.1.1" else 20))
+    assert service.choose("*")["ip"] == "1.1.1.1"
+    result = service.recommendations()
+    assert result["recommendations"] == [{"country": "Denmark", "server": "dk-01.protonvpn.net", "latencyMs": 5.0}]
+    assert result["tested"] == 2
+    assert result["measuredAt"] == 1001
+    count = len(calls)
+    assert service.recommendations() == result and len(calls) == count
+
+
+def test_global_probe_budget_is_bounded_and_countries_are_distributed():
+    service = selector()
+    service.rows = [{"country": "Country" + chr(65 + index // 26) + chr(65 + index % 26), "hostname": "node.protonvpn.net", "key": PUBLIC, "ip": f"8.8.{index}.{number}"} for index in range(40) for number in (1, 2, 3)]
+    service.expires = 2000
+    called = []
+    service.probe = lambda address: called.append(address) or 5
+    result = service.recommendations()
+    assert len(called) == 48
+    assert len(result["recommendations"]) == 24
+
+
+def test_failed_selection_never_starts_container_or_changes_original(tmp_path):
+    from fastapi import HTTPException
+    (tmp_path / "profiles").mkdir()
+    original = tmp_path / "profiles" / "synthetic.conf"
+    original.write_text(CONFIG)
+    runtime = Runtime(tmp_path, True, "/opt/mediavpn-data", SimpleNamespace(containers=SimpleNamespace(list=lambda **kwargs: [], run=lambda *args, **kwargs: pytest.fail("Failed measurement must not start a VPN"))))
+    runtime.selector = selector(lambda address: None)
+    with pytest.raises(HTTPException) as error:
+        runtime.start("synthetic", True, "*")
+    assert error.value.status_code == 503
+    assert original.read_text() == CONFIG
+    assert not (tmp_path / "profiles" / "synthetic.auto.conf").exists()
+
+
 @pytest.mark.parametrize("payload", [b'{}', b'x' * (2 * 1024 * 1024 + 1), b'{"timestamp":1,"servers":[]}'], ids=["missing", "oversized", "expired"])
 def test_catalog_fails_closed(payload):
     with pytest.raises(ValueError):
@@ -79,6 +116,9 @@ def test_api_opt_in_persistence_csrf_and_original_file(tmp_path):
     restarted.post("/api/auth/login", json={"username": "synthetic", "password": "synthetic-test-password"})
     assert restarted.get("/api/profiles").json()[0]["auto_country"] == "Denmark"
     assert client.put(endpoint, json={"country": None}).status_code == 200
+    assert client.put(endpoint, json={"country": "*"}).status_code == 200
+    assert client.get("/api/profiles").json()[0]["auto_country"] == "*"
+    assert client.get("/api/proton/recommendations").json()["tested"] == 2
     assert path.read_bytes() == original
 
 

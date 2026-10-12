@@ -259,7 +259,7 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
                 if not profile["port_forwarding"]:
                     raise HTTPException(409, "Aktivér NAT-PMP/port-forwarding på Proton-profilen først")
                 try:
-                    if body.country not in selector.countries():
+                    if body.country != "*" and body.country not in selector.countries():
                         raise ValueError()
                     selected_configuration((profiles / f"{identifier}.conf").read_text(), selector.catalog()[0])
                 except Exception:
@@ -270,6 +270,13 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
                 with database() as connection:
                     connection.execute("UPDATE profiles SET auto_country=?,desired=0 WHERE id=?", (body.country, identifier))
             return {"saved": True, "auto_country": body.country, "restartRequired": True}
+
+    @app.get("/api/proton/recommendations")
+    def recommendations(session=Depends(authorized)):
+        try:
+            return selector.recommendations()
+        except Exception:
+            raise HTTPException(503, "Servermålingen kunne ikke gennemføres. Prøv igen senere.") from None
 
     @app.post("/api/profiles", status_code=201)
     def create(body: Profile, session=Depends(authorized)):

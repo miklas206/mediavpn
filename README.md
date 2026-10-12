@@ -94,11 +94,17 @@ Upgrade with a new app image and the same data mount. Keep the previous image ta
 
 Upload en separat Proton WireGuard-profil med NAT-PMP aktiveret, og markér
 Proton port-forwarding. Under profilens **Servervalg** kan administratoren vælge
-automatisk valg i et bestemt land eller beholde serveren fra konfigurationen.
+automatisk valg i et bestemt land, automatisk valg på tværs af lande eller
+beholde serveren fra konfigurationen. Dialogen viser de bedste målte lande
+med servernavn og svartid; alle lande kan vælges i listen. Anbefalinger måles
+fra MediaVPN-værten og caches i ét minut. De ændrer aldrig en aktiv tunnel.
 Ændringer stopper den tilknyttede torrentklient og tunnelen; tryk Start bagefter.
 
 Ved start måles to TCP-forbindelser til port 443 på op til 24 tilfældigt udvalgte
 P2P/WireGuard-endpoints i landet. Den laveste gennemsnitlige svartid vinder.
+Globalt valg (`auto_country="*"`) måler op til 48 kandidater fordelt på op til
+24 tilfældigt udvalgte lande. Det er den bedste blandt de målte kandidater,
+ikke en garanti for den bedste server i hele kataloget.
 Det måler hverken serverbelastning eller downloadhastighed. Serveren beholdes,
 mens tunnelen kører; et nyt start efter stop foretager et nyt valg.
 Ingen svar eller en ugyldig serverliste giver en fejl, uden automatisk fallback

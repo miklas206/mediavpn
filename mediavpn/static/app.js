@@ -22,12 +22,17 @@ async function action(button, handler) { if (busy) return; busy = true; button.d
 function control(text, handler, className) { const button = node('button',text,className); button.type = 'button'; button.onclick = () => action(button,handler); return button; }
 const statusNames = {disabled:'Runtime ikke aktiveret',stopped:'Stoppet',connected:'Forbundet',unverified:'Ikke verificeret',starting:'Starter',unavailable:'Runtime utilgængelig'};
 let serverProfile;
+let serverDialogCycle = 0;
 const serverDialog = document.querySelector('#server-dialog');
 async function chooseServer(profile) {
+  const cycle = ++serverDialogCycle;
   serverProfile = profile.id;
   const select = document.querySelector('#server-country');
   const manual = node('option', 'Brug serveren i min konfiguration'); manual.value = '';
-  select.replaceChildren(manual); select.disabled = true;
+  const automatic = node('option', 'Automatisk · bedste målte server på tværs af lande'); automatic.value = '*';
+  select.replaceChildren(manual, automatic); select.disabled = true;
+  document.querySelector('#server-recommendations').replaceChildren();
+  document.querySelector('#server-measurement').textContent = 'Måler anbefalede lande fra din server…';
   document.querySelector('#save-server').disabled = true;
   serverDialog.showModal();
   try {
@@ -38,6 +43,25 @@ async function chooseServer(profile) {
     select.value = profile.auto_country || '';
   } catch (error) { notice(error.message); }
   finally { select.disabled = false; document.querySelector('#save-server').disabled = false; }
+  void loadRecommendations(cycle);
+}
+async function loadRecommendations(cycle) {
+  try {
+    const result = await api('proton/recommendations');
+    if (cycle !== serverDialogCycle || !serverDialog.open) return;
+    document.querySelector('#server-measurement').textContent = `Anbefalet efter ${result.tested} målte kandidater · ${new Date(result.measuredAt * 1000).toLocaleTimeString('da-DK')} · lavere ms er bedre. Målingen kan være op til ét minut gammel.`;
+    const table = node('table');
+    const head = node('thead'); const heading = node('tr'); heading.append(node('th', 'Land'), node('th', 'Svartid'), node('th', 'Målt server')); head.append(heading);
+    const body = node('tbody');
+    for (const row of result.recommendations.slice(0, 6)) {
+      const line = node('tr'); const country = node('td');
+      const choose = node('button', row.country); choose.type = 'button'; choose.onclick = () => { document.querySelector('#server-country').value = row.country; };
+      country.append(choose); line.append(country, node('td', `${row.latencyMs} ms`), node('td', row.server)); body.append(line);
+    }
+    table.append(head, body); document.querySelector('#server-recommendations').replaceChildren(table);
+  } catch {
+    if (cycle === serverDialogCycle) document.querySelector('#server-measurement').textContent = 'Anbefalinger kunne ikke måles. Du kan stadig vælge land; svartiden måles ved start.';
+  }
 }
 document.querySelector('#close-server').onclick = () => serverDialog.close();
 document.querySelector('#server-form').onsubmit = async event => {
@@ -58,7 +82,7 @@ async function refresh() {
     const item = node('article',undefined,'profile'); const details = node('div');
     details.append(node('h2',profile.name),node('span',statusNames[profile.state] || 'Ukendt','status ' + (profile.healthy ? 'connected' : '')),node('p',`WireGuard · ${profile.endpoint}:${profile.port}`),node('p',`Offentlig IP: ${profile.publicIp || 'Ikke verificeret'} · VPN-port: ${profile.forwardedPort || 'Ikke verificeret'}`));
     const controls = node('div',undefined,'actions');
-    details.append(node('p', profile.auto_country ? `Automatisk servervalg · ${profile.auto_country}${profile.selectedServer ? ' · ' + profile.selectedServer + ' · ' + profile.latencyMs + ' ms ved valg' : ' · vælges ved start'}` : 'Server fra din konfiguration'));
+    details.append(node('p', profile.auto_country ? `Automatisk servervalg · ${profile.auto_country === '*' ? 'på tværs af lande' : profile.auto_country}${profile.selectedServer ? ' · ' + profile.selectedServer + ' · ' + profile.latencyMs + ' ms ved valg' : ' · vælges ved start'}` : 'Server fra din konfiguration'));
     controls.append(control('Servervalg', () => chooseServer(profile)));
     const start = control('Start',async()=>{await api(`profiles/${profile.id}/start`,{}); await refresh(); notice('Start anmodet. Forbindelsen kontrolleres.','success');},'primary'); start.disabled = !runtime.enabled;
     const stop = control('Stop',async()=>{await api(`profiles/${profile.id}/stop`,{}); await refresh(); notice('Forbindelsen er stoppet.','success');}); stop.disabled = !runtime.enabled;

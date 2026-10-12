@@ -14,14 +14,14 @@ test('server selection offers manual fallback and sends only the chosen country'
     setInterval() {}, setTimeout() {}, clearTimeout() {}, confirm: () => true,
     fetch: async (url, options) => {
       if (options.method === 'PUT') writes.push([url, JSON.parse(options.body)]);
-      return {ok: true, json: async () => url === '/api/proton/countries' ? {countries: ['Denmark', 'Germany']} : {needsSetup: true}};
+      return {ok: true, json: async () => url === '/api/proton/countries' ? {countries: ['Denmark', 'Germany']} : url === '/api/proton/recommendations' ? {recommendations: [{country: 'Denmark', server: 'dk-01.protonvpn.net', latencyMs: 10}], tested: 4, measuredAt: Date.now() / 1000} : {needsSetup: true}};
     },
   });
   vm.runInContext(readFileSync(new URL('../mediavpn/static/app.js', import.meta.url), 'utf8'), context);
   context.refresh = async () => {};
   await context.chooseServer({id: 'synthetic', auto_country: null});
   assert.equal(find('#server-dialog').open, true);
-  assert.deepEqual(find('#server-country').children.map(row => row.value), ['', 'Denmark', 'Germany']);
+  assert.deepEqual(find('#server-country').children.map(row => row.value), ['', '*', 'Denmark', 'Germany']);
   assert.equal(find('#server-country').value, '');
   find('#server-country').value = 'Denmark';
   await find('#server-form').onsubmit({preventDefault() {}});
@@ -32,4 +32,7 @@ test('server selection offers manual fallback and sends only the chosen country'
   find('#server-country').value = '';
   await find('#server-form').onsubmit({preventDefault() {}});
   assert.equal(writes[1][1].country, null);
+  await context.chooseServer({id: 'synthetic', auto_country: '*'});
+  await find('#server-form').onsubmit({preventDefault() {}});
+  assert.equal(writes[2][1].country, '*');
 });

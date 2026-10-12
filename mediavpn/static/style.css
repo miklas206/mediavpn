@@ -2,14 +2,14 @@
 * { box-sizing:border-box; letter-spacing:0; }
 body { margin:0; background:var(--bg); color:var(--text); font-size:14px; line-height:1.55; -webkit-font-smoothing:antialiased; }
 [hidden] { display:none!important; }
-button,input { font:inherit; }
+button,input,select { font:inherit; }
 button { min-height:40px; padding:9px 14px; border:1px solid var(--line); border-radius:9px; background:var(--raised); color:var(--text); font-size:13px; font-weight:550; cursor:pointer; }
 button:hover:not(:disabled) { background:var(--accent-bg); border-color:var(--accent); }
 button:disabled { opacity:.45; cursor:not-allowed; }
 button.primary { background:var(--accent); border-color:var(--accent); color:#041520; }
 button.danger { color:var(--danger); }
 :focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
-input { width:100%; min-width:0; min-height:42px; padding:10px 12px; background:var(--bg); color:var(--text); border:1px solid var(--line); border-radius:9px; }
+input,select { width:100%; min-width:0; min-height:42px; padding:10px 12px; background:var(--bg); color:var(--text); border:1px solid var(--line); border-radius:9px; }
 label { display:grid; gap:8px; color:var(--muted); font-size:13px; }
 label:has(input[type="checkbox"]) { display:flex; align-items:center; gap:8px; margin-top:12px; }
 input[type="checkbox"] { width:16px; min-height:16px; margin:0; flex-shrink:0; accent-color:var(--accent); }
@@ -54,6 +54,14 @@ dialog { width:min(560px,calc(100% - 32px)); max-height:calc(100dvh - 48px); bor
 dialog::backdrop { background:#080d15b3; }
 dialog form { margin-top:24px; }
 dialog p { margin:0; }
+.server-measurements { display:grid; gap:12px; min-width:0; padding-top:16px; border-top:1px solid var(--line); }
+.server-measurements h3 { margin:0; font-size:15px; }
+#server-recommendations { min-width:0; }
+#server-recommendations table { width:100%; border-collapse:collapse; table-layout:fixed; }
+#server-recommendations th,#server-recommendations td { text-align:left; padding:8px 4px; border-bottom:1px solid var(--line); overflow-wrap:anywhere; font-size:12px; }
+#server-recommendations th:nth-child(2) { width:72px; }
+#server-recommendations button { padding:4px 6px; max-width:100%; text-align:left; overflow-wrap:anywhere; color:var(--accent); }
+.profile p { overflow-wrap:anywhere; }
 .notifications { position:fixed; top:16px; left:50%; transform:translateX(-50%); width:min(460px,calc(100% - 32px)); z-index:2000; pointer-events:none; }
 #message { margin:0; padding:16px 20px; border:1px solid var(--line); border-radius:8px; background:#321e29; color:var(--text); box-shadow:0 20px 70px #00000066; pointer-events:auto; }
 #message:empty { display:none; }

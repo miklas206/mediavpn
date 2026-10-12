@@ -29,6 +29,9 @@ class ProtonSelector:
         self.lock = threading.Lock()
         self.rows = []
         self.expires = 0
+        self.measure_lock = threading.Lock()
+        self.recommended = None
+        self.measured_until = 0
 
     @staticmethod
     def download():
@@ -95,18 +98,44 @@ class ProtonSelector:
     def countries(self):
         return sorted({row["country"] for row in self.catalog()})
 
-    def choose(self, country):
-        candidates = [row for row in self.catalog() if row["country"] == country]
+    def measure(self, country):
+        rows = self.catalog()
+        if country == "*":
+            # Distribute a bounded global sample across countries, not large fleets.
+            countries = sorted({row["country"] for row in rows})
+            selected = self.sample(countries, min(24, len(countries)))
+            candidates = []
+            for name in selected:
+                pool = [row for row in rows if row["country"] == name]
+                candidates.extend(self.sample(pool, min(2, len(pool))))
+        else:
+            pool = [row for row in rows if row["country"] == country]
+            candidates = self.sample(pool, min(24, len(pool)))
         if not candidates:
             raise ValueError("Ingen Proton P2P-servere i det valgte land")
-        candidates = self.sample(candidates, min(24, len(candidates)))
-        with ThreadPoolExecutor(max_workers=6) as pool:
+        with ThreadPoolExecutor(max_workers=12) as pool:
             measurements = list(pool.map(lambda row: self.probe(row["ip"]), candidates))
-        ranked = [(latency, row) for row, latency in zip(candidates, measurements) if isinstance(latency, (int, float)) and 0 <= latency < 10000]
+        ranked = sorted([(latency, row) for row, latency in zip(candidates, measurements) if type(latency) in (int, float) and 0 <= latency < 10000], key=lambda pair: pair[0])
         if not ranked:
             raise ValueError("Ingen af de maalte Proton-servere svarede")
-        latency, selected = min(ranked, key=lambda pair: pair[0])
-        return {**selected, "latencyMs": round(latency, 1), "tested": len(candidates)}
+        return ranked, len(candidates)
+
+    def recommendations(self):
+        with self.measure_lock:
+            if self.recommended and self.clock() < self.measured_until:
+                return self.recommended
+            ranked, tested = self.measure("*")
+            countries = {}
+            for latency, row in ranked:
+                countries.setdefault(row["country"], {"country": row["country"], "server": row["hostname"], "latencyMs": round(latency, 1)})
+            self.recommended = {"recommendations": list(countries.values()), "tested": tested, "measuredAt": self.clock()}
+            self.measured_until = self.clock() + 60
+            return self.recommended
+
+    def choose(self, country):
+        ranked, tested = self.measure(country)
+        latency, selected = ranked[0]
+        return {**selected, "latencyMs": round(latency, 1), "tested": tested}
 
 
 def selected_configuration(original, server):
