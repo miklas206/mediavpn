@@ -1,4 +1,5 @@
 import hashlib
+import logging
 import os
 import secrets
 import sqlite3
@@ -19,9 +20,10 @@ from mediavpn.auth import install_auth
 from mediavpn.configuration import parse_wireguard
 from mediavpn.runtime import Runtime
 from mediavpn.seedbox import Seedbox
-from mediavpn.proton import ProtonSelector, selected_configuration
+from mediavpn.proton import ProtonSelectionError, ProtonSelector, selected_configuration
 
 STATIC = Path(__file__).parent / "static"
+logger = logging.getLogger(__name__)
 
 
 class Profile(BaseModel):
@@ -309,14 +311,22 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
     def recommendations(session=Depends(authorized)):
         try:
             return selector.recommendations()
-        except Exception:
+        except ProtonSelectionError as error:
+            logger.warning("Proton recommendations failed: %s", error)
+            raise HTTPException(503, str(error)) from None
+        except Exception as error:
+            logger.warning("Proton recommendations failed unexpectedly (%s)", type(error).__name__)
             raise HTTPException(503, "Servermålingen kunne ikke gennemføres. Prøv igen senere.") from None
 
     @app.post("/api/proton/recommendations/refresh")
     def refresh_recommendations(session=Depends(authorized)):
         try:
             return selector.recommendations(force=True)
-        except Exception:
+        except ProtonSelectionError as error:
+            logger.warning("Proton recommendation refresh failed: %s", error)
+            raise HTTPException(503, str(error)) from None
+        except Exception as error:
+            logger.warning("Proton recommendation refresh failed unexpectedly (%s)", type(error).__name__)
             raise HTTPException(503, "Servermålingen kunne ikke opdateres. Prøv igen senere.") from None
 
     @app.post("/api/profiles", status_code=201)

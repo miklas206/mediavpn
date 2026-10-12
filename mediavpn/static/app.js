@@ -126,8 +126,11 @@ async function loadRecommendations(cycle, force = false) {
     }
     table.append(head, body); document.querySelector('#server-recommendations').replaceChildren(table);
     setServerChoice(document.querySelector('#server-country').value);
-  } catch {
-    if (measurement === serverMeasurementCycle && cycle === serverDialogCycle) document.querySelector('#server-measurement').textContent = 'Anbefalinger kunne ikke måles. Du kan stadig vælge land; svartiden måles ved start.';
+  } catch (error) {
+    if (measurement === serverMeasurementCycle && cycle === serverDialogCycle && serverDialog.open) {
+      document.querySelector('#server-measurement').textContent = 'Anbefalinger kunne ikke måles. Du kan stadig vælge land; svartiden måles ved start.';
+      notice(error.status === 401 ? 'Din login-session er udløbet. Åbn MediaVPN igen fra MediaHub.' : error.message || 'Forbindelsen til MediaVPN blev afbrudt. Prøv at opdatere anbefalingerne igen.');
+    }
   }
 }
 document.querySelector('#server-country-search').oninput = event => {

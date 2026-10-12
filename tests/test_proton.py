@@ -51,6 +51,34 @@ def test_global_selection_and_recommendations_cache():
     assert service.recommendations() == result and len(calls) == count
 
 
+@pytest.mark.parametrize("refresh", [False, True])
+@pytest.mark.parametrize("failure,expected", [
+    ("network", "serverliste kunne ikke hentes"),
+    ("invalid", "ugyldige data"),
+    ("probe", "Ingen af de målte Proton-servere svarede"),
+    ("unexpected", "Servermålingen kunne ikke"),
+])
+def test_recommendation_failures_are_actionable_and_do_not_leak_details(tmp_path, caplog, refresh, failure, expected):
+    service = selector()
+    def fail():
+        raise OSError("secret-provider-response")
+    if failure == "network":
+        service.fetch = fail
+    elif failure == "invalid":
+        service.fetch = lambda: b"secret-provider-response"
+    elif failure == "probe":
+        service.probe = lambda address: None
+    else:
+        service.probe = lambda address: 1 / 0
+    client = TestClient(create_app(tmp_path, "http://testserver", selector=service))
+    login(client)
+    response = client.post("/api/proton/recommendations/refresh", json={}) if refresh else client.get("/api/proton/recommendations")
+    assert response.status_code == 503
+    assert expected in response.json()["detail"]
+    assert "secret-provider-response" not in response.text + caplog.text
+    assert "Proton recommendation" in caplog.text
+
+
 def test_global_probe_budget_is_bounded_and_countries_are_distributed():
     service = selector()
     service.rows = [{"country": "Country" + chr(65 + index // 26) + chr(65 + index % 26), "hostname": "node.protonvpn.net", "key": PUBLIC, "ip": f"8.8.{index}.{number}"} for index in range(40) for number in (1, 2, 3)]

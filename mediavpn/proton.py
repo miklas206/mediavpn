@@ -22,6 +22,10 @@ LOAD_URL = "https://api.protonvpn.ch/vpn/v1/logicals?SecureCoreFilter=all&WithSt
 MAX_LOAD_BYTES = 24 * 1024 * 1024
 
 
+class ProtonSelectionError(ValueError):
+    """Safe, user-facing failure of the public server catalog or probes."""
+
+
 class ProtonSelector:
     def __init__(self, fetch=None, probe=None, clock=time.time, sample=None, fetch_load=None):
         self.fetch = fetch or self.download
@@ -104,15 +108,21 @@ class ProtonSelector:
         with self.lock:
             if not force and self.rows and self.clock() < self.expires:
                 return self.rows
-            raw = self.fetch()
+            try:
+                raw = self.fetch()
+            except OSError:
+                raise ProtonSelectionError("Protons serverliste kunne ikke hentes. Kontrollér serverens internetforbindelse og prøv igen.") from None
             if len(raw) > MAX_BYTES:
-                raise ValueError("Serverlisten er for stor")
-            data = json.loads(raw)
+                raise ProtonSelectionError("Serverlisten er for stor")
+            try:
+                data = json.loads(raw)
+            except ValueError:
+                raise ProtonSelectionError("Protons serverliste indeholder ugyldige data. Prøv at opdatere anbefalingerne senere.") from None
             if not isinstance(data, dict) or not isinstance(data.get("timestamp"), (int, float)) or not 0 <= self.clock() - data["timestamp"] < 120 * 86400:
-                raise ValueError("Serverlisten er for gammel eller ugyldig")
+                raise ProtonSelectionError("Serverlisten er for gammel eller ugyldig")
             servers = data.get("servers")
             if not isinstance(servers, list) or len(servers) > 20000:
-                raise ValueError("Ugyldig serverliste")
+                raise ProtonSelectionError("Ugyldig serverliste")
             rows = []
             seen = set()
             for row in servers:
@@ -141,7 +151,7 @@ class ProtonSelector:
                     seen.add(str(address))
                     rows.append({"country": country, "hostname": hostname, "key": key, "ip": str(address)})
             if not rows:
-                raise ValueError("Ingen Proton P2P-servere i listen")
+                raise ProtonSelectionError("Ingen Proton P2P-servere i listen")
             self.rows, self.expires = rows, self.clock() + 21600
             return self.rows
 
@@ -164,7 +174,7 @@ class ProtonSelector:
             # Still probe only a bounded endpoint sample within each country.
             countries = sorted({row["country"] for row in rows})
             if len(countries) > 256:
-                raise ValueError("Serverlisten indeholder for mange lande")
+                raise ProtonSelectionError("Serverlisten indeholder for mange lande")
             per_country = 2 if len(countries) <= 24 else 1
             candidates = []
             for name in countries:
@@ -174,12 +184,12 @@ class ProtonSelector:
             pool = [row for row in rows if row["country"] == country]
             candidates = candidates_for(pool, 24)
         if not candidates:
-            raise ValueError("Ingen Proton P2P-servere i det valgte land")
+            raise ProtonSelectionError("Ingen Proton P2P-servere i det valgte land")
         with ThreadPoolExecutor(max_workers=24 if country == "*" else 12) as pool:
             measurements = list(pool.map(lambda row: self.probe(row["ip"]), candidates))
         ranked = sorted([(latency, row) for row, latency in zip(candidates, measurements) if type(latency) in (int, float) and 0 <= latency < 10000], key=lambda pair: (pair[1]["loadPercent"] if pair[1]["loadPercent"] is not None else 101, pair[0]))
         if not ranked:
-            raise ValueError("Ingen af de maalte Proton-servere svarede")
+            raise ProtonSelectionError("Ingen af de målte Proton-servere svarede på forbindelsestesten fra din normale internetforbindelse. Prøv at opdatere anbefalingerne igen.")
         return ranked, len(candidates)
 
     def recommendations(self, force=False):
