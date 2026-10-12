@@ -113,8 +113,8 @@ async function loadRecommendations(cycle, force = false) {
   try {
     const result = force ? await api('proton/recommendations/refresh', {}) : await api('proton/recommendations');
     if (measurement !== serverMeasurementCycle || cycle !== serverDialogCycle || !serverDialog.open) return;
-    document.querySelector('#server-measurement').textContent = `Stikprøve: ${result.tested} målte kandidater${result.totalCountries ? ` · svar fra ${result.recommendations.length} af ${result.totalCountries} lande` : ''} · ${new Date(result.measuredAt * 1000).toLocaleTimeString('da-DK')} · laveste belastning prioriteres, derefter svartid. Målingen kan være op til ét minut gammel.`;
-    if (!result.loadAvailable) document.querySelector('#server-measurement').textContent += ' Proton udleverer ikke belastningsdata lige nu; anbefalingerne bruger kun målt svartid.';
+    document.querySelector('#server-measurement').textContent = `Stikprøve: ${result.tested} målte kandidater${result.totalCountries ? ` · svar fra ${result.recommendations.length} af ${result.totalCountries} lande` : ''} · ${new Date(result.measuredAt * 1000).toLocaleTimeString('da-DK')} · ${result.loadAvailable ? 'laveste belastning prioriteres, derefter svartid' : 'anbefalet efter målt svartid'}. Målingen kan være op til ét minut gammel.`;
+    if (!result.loadAvailable) document.querySelector('#server-measurement').textContent += result.loadStatus === 'authorization_required' ? ' Proton kræver API-godkendelse for belastningsdata. WireGuard-konfigurationen giver ikke API-adgang; automatisk valg bruger derfor kun svartid.' : ' Belastningsdata kunne ikke hentes; automatisk valg bruger derfor kun målt svartid.';
     const table = node('table');
     const head = node('thead'); const heading = node('tr'); heading.append(node('th', 'Land'), node('th', 'Belastning'), node('th', 'Svartid'), node('th', 'Målt server')); head.append(heading);
     const body = node('tbody');

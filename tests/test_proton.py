@@ -271,6 +271,22 @@ def test_unavailable_or_invalid_load_never_becomes_zero_percent():
     assert not service.recommendations(force=True)["loadAvailable"]
 
 
+def test_load_authorization_failure_is_distinct_from_temporary_failure():
+    from urllib.error import HTTPError
+    service = selector()
+    for status in (401, 403, 503):
+        def denied():
+            raise HTTPError("https://provider.test", status, "secret-response", {}, None)
+        service.fetch_load = denied
+        result = service.recommendations(force=True)
+        assert result["loadStatus"] == ("authorization_required" if status in (401, 403) else "unavailable")
+        assert not result["loadAvailable"]
+        assert result["recommendations"][0]["loadPercent"] is None
+        assert "secret-response" not in json.dumps(result)
+    service.fetch_load = lambda: b'{"Code":401}'
+    assert service.recommendations(force=True)["loadStatus"] == "authorization_required"
+
+
 def test_supervisor_reconnects_without_another_start_request(tmp_path, monkeypatch):
     import sqlite3
     import threading

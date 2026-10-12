@@ -92,6 +92,13 @@ Tests use synthetic keys and fake runtime objects. No live VPN access or traffic
 Upgrade with a new app image and the same data mount. Keep the previous image tag for rollback; no automatic destructive data migration. Preserve running VPN containers and data when rolling back. Do not use compose down -v. Docker runtime and Gluetun image versions should be reviewed before production use.
 # Automatisk Proton-servervalg
 
+Belastningsdata kræver adgang til Protons API. Den nuværende integration har
+ingen Proton-kontosession; WireGuard-nøglen giver ikke API-adgang. Et HTTP
+401/403-svar vises derfor som krav om API-godkendelse (`loadStatus` er
+`authorization_required`), og automatisk valg bruger målt svartid. Ukendt
+belastning behandles aldrig som 0 %. Andre datakilde-fejl vises særskilt som
+utilgængelige data. En ny WireGuard-konfiguration løser ikke API-godkendelsen.
+
 Upload en separat Proton WireGuard-profil med NAT-PMP aktiveret, og markér
 Proton port-forwarding. Under profilens **Servervalg** kan administratoren vælge
 automatisk valg i et bestemt land, automatisk valg på tværs af lande eller

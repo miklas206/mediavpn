@@ -15,6 +15,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from urllib.request import Request, urlopen
+from urllib.error import HTTPError
 
 CATALOG_URL = "https://raw.githubusercontent.com/qdm12/gluetun-servers/main/pkg/servers/protonvpn.json"
 MAX_BYTES = 2 * 1024 * 1024
@@ -43,6 +44,7 @@ class ProtonSelector:
         self.loads = {}
         self.loads_until = 0
         self.loads_at = None
+        self.load_status = "unavailable"
 
     @staticmethod
     def download_load():
@@ -56,11 +58,14 @@ class ProtonSelector:
             if not force and self.clock() < self.loads_until:
                 return self.loads
             loads = {}
+            self.load_status = "unavailable"
             try:
                 raw = self.fetch_load()
                 if len(raw) > MAX_LOAD_BYTES:
                     raise ValueError("Load response too large")
                 data = json.loads(raw)
+                if isinstance(data, dict) and data.get("Code") in (401, 403):
+                    self.load_status = "authorization_required"
                 rows = data.get("LogicalServers")
                 if data.get("Code") != 1000 or not isinstance(rows, list) or len(rows) > 30000:
                     raise ValueError("Invalid load response")
@@ -80,9 +85,15 @@ class ProtonSelector:
                             # An endpoint may serve multiple logical servers;
                             # use the highest reported load rather than understate it.
                             loads[identity] = max(loads.get(identity, 0), row["Load"])
+            except HTTPError as error:
+                if error.code in (401, 403):
+                    self.load_status = "authorization_required"
+                loads = {}
             except (OSError, ValueError, TypeError, AttributeError):
                 loads = {}  # No stale percentages or account login dependencies.
             self.loads = loads
+            if loads:
+                self.load_status = "available"
             self.loads_at = self.clock() if loads else None
             self.loads_until = self.clock() + 60
             return loads
@@ -203,7 +214,7 @@ class ProtonSelector:
             countries = {}
             for latency, row in ranked:
                 countries.setdefault(row["country"], {"country": row["country"], "server": row["hostname"], "latencyMs": round(latency, 1), "loadPercent": row["loadPercent"]})
-            self.recommended = {"recommendations": list(countries.values()), "tested": tested, "totalCountries": len(self.countries()), "measuredAt": self.clock(), "loadMeasuredAt": self.loads_at, "loadAvailable": self.loads_at is not None}
+            self.recommended = {"recommendations": list(countries.values()), "tested": tested, "totalCountries": len(self.countries()), "measuredAt": self.clock(), "loadMeasuredAt": self.loads_at, "loadAvailable": self.loads_at is not None, "loadStatus": self.load_status}
             self.measured_until = self.clock() + 60
             return self.recommended
 
