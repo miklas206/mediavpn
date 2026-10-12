@@ -10,7 +10,7 @@ def test_requires_recent_successful_healthcheck(tmp_path):
             return SimpleNamespace(exit_code=0, output=b'[{"ifname":"tun0","flags":["UP"],"addr_info":[{"family":"inet"}]}]')
         if command[-1].endswith("/portforwarded"):
             return SimpleNamespace(exit_code=0, output=b'{"port":43210}')
-        return SimpleNamespace(exit_code=0, output=b'{"status":"running"}' if command[-1].endswith("/status") else b'{"public_ip":"8.8.8.8"}')
+        return SimpleNamespace(exit_code=0, output=b'{"status":"running"}' if command[-1].endswith("/status") else b'{"public_ip":"8.8.8.8","country":"Sweden"}')
     container = SimpleNamespace(attrs={"State": {"Running": True, "Health": {"Status": "healthy", "Log": []}}}, reload=lambda: None, exec_run=execute)
     runtime = Runtime(tmp_path, True, "/opt/mediavpn-data", SimpleNamespace(containers=SimpleNamespace(list=lambda **kwargs: [container])))
     assert runtime.status("synthetic")["healthy"] is False
@@ -19,6 +19,9 @@ def test_requires_recent_successful_healthcheck(tmp_path):
         assert runtime.status("synthetic")["healthy"] is expected
         if expected:
             assert runtime.status("synthetic")["forwardedPort"] == 43210
+            assert runtime.status("synthetic")["country"] == "Sweden"
+        else:
+            assert runtime.status("synthetic").get("country") is None
     container.attrs["State"]["Health"]["Log"] = [{"End": datetime.now(timezone.utc).isoformat(), "ExitCode": 0}]
     container.exec_run = lambda command: SimpleNamespace(exit_code=0, output=b'[]' if command[0] == "ip" else b'{"status":"running","public_ip":"8.8.8.8"}')
     assert runtime.status("synthetic")["healthy"] is False

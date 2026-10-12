@@ -1,5 +1,10 @@
 # MediaVPN
 
+Verified runtime observations include Gluetun's public-IP country when supplied.
+MediaSeed receives that country and the check timestamp with its integration
+status only when its route is ready. Unknown or unavailable country does not
+alter the VPN gate; an unhealthy tunnel never supplies a verified country.
+
 Independent MediaHub-family VPN profile manager, using FjordVPN as a functional reference, not copied application source. MediaHub Core/Agent and existing VPN installations are not required or modified.
 
 ## Current Scope

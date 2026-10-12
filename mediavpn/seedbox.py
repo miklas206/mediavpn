@@ -6,6 +6,7 @@ import re
 import secrets
 import tarfile
 import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -229,7 +230,7 @@ class Seedbox:
                     ready = preferences.get("current_network_interface") == "tun0" and preferences.get("listen_port") == observed["forwardedPort"] and not preferences.get("upnp")
                 except Exception:
                     ready = False
-            return {**settings, "ready": ready, "downloadsEnabled": ready, "vpn": "verified" if ready else "unverified", "publicIp": observed["publicIp"], "forwardedPort": observed["forwardedPort"], "reason": self.error or (None if ready else "Vaelg og start en VPN-profil med tildelt port")}
+            return {**settings, "ready": ready, "downloadsEnabled": ready, "vpn": "verified" if ready else "unverified", "publicIp": observed["publicIp"], "forwardedPort": observed["forwardedPort"], "country": observed.get("country") if ready else None, "checkedAt": observed.get("checkedAt", time.time()), "reason": self.error or (None if ready else "Vaelg og start en VPN-profil med tildelt port")}
 
     @staticmethod
     def execute(child, path, method, payload, content=None):

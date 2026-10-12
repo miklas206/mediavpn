@@ -71,7 +71,9 @@ class Runtime:
                                 forwarded_port = port
                         except Exception:
                             pass
-                        return {"state": "connected", "healthy": True, "checkedAt": time.time(), "publicIp": str(public_ip), "forwardedPort": forwarded_port}
+                        country = address.get("country")
+                        country = country.strip() if isinstance(country, str) and len(country) <= 80 and country.isprintable() else None
+                        return {"state": "connected", "healthy": True, "checkedAt": time.time(), "publicIp": str(public_ip), "forwardedPort": forwarded_port, "country": country or None}
             return {"state": state, "healthy": False, "checkedAt": time.time(), "publicIp": None, "forwardedPort": None}
         except HTTPException:
             raise
