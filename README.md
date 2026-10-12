@@ -117,3 +117,5 @@ bruges. Kataloger ældre end 120 dage afvises. Private keys sendes aldrig med
 forespørgslerne. En afledt lokal `.auto.conf` med adgang 0600 bruges til tunnelen;
 den uploadede `.conf` bevares. Profiler med PresharedKey kan kun bruges manuelt.
 Den samme private key må ikke bruges samtidigt på en anden maskine.
+
+Manual MediaSeed imports can explicitly choose immediate start or pause. The integration upload defaults to `start=false`; `start=true` passes consistent `stopped=false` / `paused=false` flags. RPC imports accept only matching true/false mode flags. Both modes retain the fresh readiness check under the controller lock before qBittorrent delivery. RSS imports remain paused until their existing per-item approval.

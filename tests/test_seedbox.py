@@ -90,3 +90,23 @@ def test_machine_api_cannot_start_all_or_escape_download_directory(tmp_path):
         with pytest.raises(HTTPException) as caught:
             controller.rpc(path, "POST", payload)
         assert caught.value.status_code == 422
+
+
+@pytest.mark.parametrize("paused", ["true", "false"])
+def test_add_mode_is_validated_and_both_modes_use_fresh_vpn_gate(tmp_path, paused):
+    controller = Seedbox(SimpleNamespace(enabled=False), tmp_path)
+    controller.reconcile = lambda: None
+    controller.status = lambda: {"ready": False}
+    calls = []
+    controller.child = lambda: "synthetic"
+    controller.execute = lambda child, path, method, payload, content: calls.append(payload)
+    payload = {"stopped": paused, "paused": paused, "urls": "magnet:?test", "savepath": "/downloads"}
+    with pytest.raises(HTTPException) as caught:
+        controller.rpc("torrents/add", "POST", payload)
+    assert caught.value.status_code == 409 and not calls
+    controller.status = lambda: {"ready": True}
+    controller.rpc("torrents/add", "POST", payload)
+    assert calls == [payload]
+    with pytest.raises(HTTPException) as caught:
+        controller.rpc("torrents/add", "POST", {**payload, "paused": "maybe"})
+    assert caught.value.status_code == 422

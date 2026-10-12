@@ -298,8 +298,8 @@ class Seedbox:
                 if not re.fullmatch(r"[a-fA-F0-9]{40}|[a-fA-F0-9]{64}", identifier):
                     raise HTTPException(422, "Invalid torrent hash")
             elif path == "torrents/add":
-                if payload.get("stopped") != "true" or payload.get("paused") != "true":
-                    raise HTTPException(422, "New torrents must be stopped")
+                if payload.get("stopped") not in {"true", "false"} or payload.get("paused") != payload.get("stopped"):
+                    raise HTTPException(422, "Choose a consistent torrent start mode")
                 if not re.fullmatch(r"/downloads(?:/[A-Za-z0-9_-]+)*", str(payload.get("savepath", ""))):
                     raise HTTPException(422, "Invalid download path")
                 if content is None and not str(payload.get("urls", "")).startswith("magnet:?"):

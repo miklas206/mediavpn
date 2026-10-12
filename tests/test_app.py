@@ -69,3 +69,18 @@ def test_machine_api_rejects_missing_or_wrong_key_without_disclosing_profiles(tm
         login(client)
         state = client.get("/api/seedbox").json()
         assert state["ready"] is False and state["profiles"] == []
+
+
+def test_machine_upload_passes_explicit_start_choice_through_gate(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from mediavpn.seedbox import Seedbox
+    captured = []
+    monkeypatch.setattr(Seedbox, "rpc", lambda self, path, method, payload, content=None: captured.append((payload, content)) or {"status": 204, "body": ""})
+    monkeypatch.setattr(Seedbox, "reconcile", lambda self: None)
+    with TestClient(create_app(tmp_path, "http://testserver", runtime=SimpleNamespace(enabled=True))) as client:
+        token = (tmp_path / "integrations" / "mediaseed.token").read_text().strip()
+        for query, expected in [("", "true"), ("?start=true", "false"), ("?start=false", "true")]:
+            response = client.post("/api/integration/upload" + query, content=b"dee", headers={"X-MediaSeed-Key": token})
+            assert response.status_code == 200
+            assert captured[-1][0]["stopped"] == captured[-1][0]["paused"] == expected
+            assert captured[-1][1] == b"dee"
