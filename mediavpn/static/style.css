@@ -58,10 +58,14 @@ dialog form { margin-top:24px; }
 dialog p { margin:0; }
 .server-measurements { display:grid; gap:12px; min-width:0; padding-top:16px; border-top:1px solid var(--line); }
 .server-measurements h3 { margin:0; font-size:15px; }
+fieldset { min-width:0; border:1px solid var(--line); border-radius:9px; padding:12px 16px; }
+fieldset legend { color:var(--muted); font-size:13px; }
+fieldset p { margin-top:12px; }
+.server-measurements .heading { flex-wrap:wrap; }
 #server-recommendations { min-width:0; }
 #server-recommendations table { width:100%; border-collapse:collapse; table-layout:fixed; }
 #server-recommendations th,#server-recommendations td { text-align:left; padding:8px 4px; border-bottom:1px solid var(--line); overflow-wrap:anywhere; font-size:12px; }
-#server-recommendations th:nth-child(2) { width:72px; }
+#server-recommendations th:nth-child(2),#server-recommendations th:nth-child(3) { width:68px; }
 #server-recommendations button { padding:4px 6px; max-width:100%; text-align:left; overflow-wrap:anywhere; color:var(--accent); }
 .profile p { overflow-wrap:anywhere; }
 .notifications { position:fixed; top:16px; left:50%; transform:translateX(-50%); width:min(460px,calc(100% - 32px)); z-index:2000; pointer-events:none; }

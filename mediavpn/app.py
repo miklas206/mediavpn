@@ -68,6 +68,7 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
     if isinstance(runtime, Runtime):
         runtime.selector = selector
     lock = threading.Lock()
+    wakeup = threading.Event()
 
     @contextmanager
     def database():
@@ -115,6 +116,7 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
         stopping = threading.Event()
         def supervise():
             while not stopping.is_set():
+                wakeup.clear()
                 try:
                     with lock, database() as connection:
                         desired = connection.execute("SELECT id,port_forwarding,auto_country FROM profiles WHERE desired=1").fetchall()
@@ -127,12 +129,13 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
                     except Exception:
                         pass
                     seedbox.error = "VPN-supervisor kunne ikke verificere forbindelsen"
-                stopping.wait(5)
+                wakeup.wait(5)
         worker = threading.Thread(target=supervise, name="mediavpn-supervisor", daemon=True) if runtime.enabled else None
         if worker:
             worker.start()
         yield
         stopping.set()
+        wakeup.set()
         if worker:
             worker.join(timeout=20)
             try:
@@ -265,12 +268,18 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
                     selected_configuration((profiles / f"{identifier}.conf").read_text(), selector.catalog()[0])
                 except Exception:
                     raise HTTPException(422, "Land eller Proton-konfiguration kan ikke bruges til automatisk servervalg") from None
-            if profile["auto_country"] != body.country:
+            reconnecting = bool(runtime.enabled and (profile["desired"] or runtime.status(identifier)["state"] in {"connected", "unverified", "starting"}))
+            # Keep the user's running/stopped intent. The supervisor starts the
+            # replacement and reconciles attached clients only after health and
+            # NAT-PMP have supplied a verified port. Re-saving an active choice
+            # deliberately measures/selects a new server too.
+            if profile["auto_country"] != body.country or reconnecting:
                 stop_attached(identifier)
                 runtime.stop(identifier)
                 with database() as connection:
-                    connection.execute("UPDATE profiles SET auto_country=?,desired=0 WHERE id=?", (body.country, identifier))
-            return {"saved": True, "auto_country": body.country, "restartRequired": True}
+                    connection.execute("UPDATE profiles SET auto_country=?,desired=? WHERE id=?", (body.country, int(reconnecting), identifier))
+                wakeup.set()
+            return {"saved": True, "auto_country": body.country, "restartRequired": False, "reconnecting": reconnecting}
 
     @app.get("/api/proton/recommendations")
     def recommendations(session=Depends(authorized)):
@@ -278,6 +287,13 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
             return selector.recommendations()
         except Exception:
             raise HTTPException(503, "Servermålingen kunne ikke gennemføres. Prøv igen senere.") from None
+
+    @app.post("/api/proton/recommendations/refresh")
+    def refresh_recommendations(session=Depends(authorized)):
+        try:
+            return selector.recommendations(force=True)
+        except Exception:
+            raise HTTPException(503, "Servermålingen kunne ikke opdateres. Prøv igen senere.") from None
 
     @app.post("/api/profiles", status_code=201)
     def create(body: Profile, session=Depends(authorized)):

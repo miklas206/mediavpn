@@ -19,6 +19,42 @@ def test_missing_vpn_port_stops_client_and_never_creates(tmp_path):
     assert controller.error is not None
 
 
+def test_reconnect_replaces_network_namespace_and_updates_port(tmp_path):
+    import base64
+    import json
+    events = []
+    vpn = SimpleNamespace(id="new-vpn", attrs={"State": {"StartedAt": "new-generation"}}, reload=lambda: None)
+    runtime = SimpleNamespace(enabled=True, container=lambda identifier: vpn,
+        status=lambda identifier: {"healthy": True, "forwardedPort": 54321, "publicIp": "8.8.8.8"})
+    controller = Seedbox(runtime, tmp_path)
+    controller.path.write_text(json.dumps({"enabled": True, "profileId": "a" * 24}))
+    child = SimpleNamespace(labels={"org.mediahub.mediavpn.generation": "old-vpn:old-generation"},
+        attrs={"State": {"Running": True}}, reload=lambda: None,
+        stop=lambda **kwargs: events.append("stop old client"), remove=lambda: events.append("remove old container"))
+    current = [child]
+    controller.child = lambda: current[0]
+    def create(new_vpn, generation, port):
+        events.append(("create", new_vpn.id, generation, port))
+        current[0] = SimpleNamespace(labels={"org.mediahub.mediavpn.generation": generation},
+            attrs={"State": {"Running": False}}, reload=lambda: None,
+            start=lambda: current[0].attrs["State"].update(Running=True))
+    controller.create = create
+    preferences = {"current_network_interface": "tun0", "listen_port": 12345, "upnp": False,
+        "max_active_downloads": 8, "queueing_enabled": True, "rss_processing_enabled": True, "rss_auto_downloading_enabled": False}
+    def execute(child, path, method, payload):
+        if path == "app/setPreferences":
+            preferences.update(json.loads(payload["json"]))
+            events.append(("port updated", preferences["listen_port"]))
+        return {"body": base64.b64encode(json.dumps(preferences).encode()).decode()}
+    controller.execute = execute
+    controller.reconcile()
+    assert events == ["stop old client", "remove old container", ("create", "new-vpn", "new-vpn:new-generation", 54321)]
+    controller.reconcile()
+    assert ("port updated", 54321) in events
+    assert controller.status()["ready"]
+    assert not any("torrents/" in str(event) for event in events)  # User-paused torrents stay paused.
+
+
 def test_rpc_is_restricted_and_requires_readiness(tmp_path):
     controller = Seedbox(SimpleNamespace(enabled=False), tmp_path)
     with pytest.raises(HTTPException) as caught:

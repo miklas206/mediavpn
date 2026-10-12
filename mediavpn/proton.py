@@ -14,14 +14,16 @@ import socket
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 
 CATALOG_URL = "https://raw.githubusercontent.com/qdm12/gluetun-servers/main/pkg/servers/protonvpn.json"
 MAX_BYTES = 2 * 1024 * 1024
+LOAD_URL = "https://api.protonvpn.ch/vpn/v1/logicals?SecureCoreFilter=all&WithState=true"
+MAX_LOAD_BYTES = 24 * 1024 * 1024
 
 
 class ProtonSelector:
-    def __init__(self, fetch=None, probe=None, clock=time.time, sample=None):
+    def __init__(self, fetch=None, probe=None, clock=time.time, sample=None, fetch_load=None):
         self.fetch = fetch or self.download
         self.probe = probe or self.latency
         self.clock = clock
@@ -32,6 +34,54 @@ class ProtonSelector:
         self.measure_lock = threading.Lock()
         self.recommended = None
         self.measured_until = 0
+        self.fetch_load = fetch_load or self.download_load
+        self.load_lock = threading.Lock()
+        self.loads = {}
+        self.loads_until = 0
+        self.loads_at = None
+
+    @staticmethod
+    def download_load():
+        request = Request(LOAD_URL, headers={"User-Agent": "MediaVPN/0.1.0", "Accept": "application/json", "x-pm-appversion": "Other"})
+        with urlopen(request, timeout=5) as response:
+            return response.read(MAX_LOAD_BYTES + 1)
+
+    def server_loads(self, force=False):
+        """Optional provider telemetry. Missing load is never invented as 0%."""
+        with self.load_lock:
+            if not force and self.clock() < self.loads_until:
+                return self.loads
+            loads = {}
+            try:
+                raw = self.fetch_load()
+                if len(raw) > MAX_LOAD_BYTES:
+                    raise ValueError("Load response too large")
+                data = json.loads(raw)
+                rows = data.get("LogicalServers")
+                if data.get("Code") != 1000 or not isinstance(rows, list) or len(rows) > 30000:
+                    raise ValueError("Invalid load response")
+                for row in rows:
+                    if not isinstance(row, dict) or type(row.get("Load")) not in (int, float) or not 0 <= row["Load"] <= 100:
+                        continue
+                    if type(row.get("Features")) is not int or not row["Features"] & 4 or row.get("Status") != 1:
+                        continue
+                    servers = row.get("Servers")
+                    if not isinstance(servers, list):
+                        continue
+                    for server in servers[:32]:
+                        if not isinstance(server, dict) or server.get("Status") != 1:
+                            continue
+                        identity = (server.get("EntryIP"), server.get("X25519PublicKey"))
+                        if all(isinstance(value, str) for value in identity):
+                            # An endpoint may serve multiple logical servers;
+                            # use the highest reported load rather than understate it.
+                            loads[identity] = max(loads.get(identity, 0), row["Load"])
+            except (OSError, ValueError, TypeError, AttributeError):
+                loads = {}  # No stale percentages or account login dependencies.
+            self.loads = loads
+            self.loads_at = self.clock() if loads else None
+            self.loads_until = self.clock() + 60
+            return loads
 
     @staticmethod
     def download():
@@ -50,9 +100,9 @@ class ProtonSelector:
                 return None
         return sum(samples) / len(samples)
 
-    def catalog(self):
+    def catalog(self, force=False):
         with self.lock:
-            if self.rows and self.clock() < self.expires:
+            if not force and self.rows and self.clock() < self.expires:
                 return self.rows
             raw = self.fetch()
             if len(raw) > MAX_BYTES:
@@ -100,6 +150,15 @@ class ProtonSelector:
 
     def measure(self, country):
         rows = self.catalog()
+        loads = self.server_loads()
+        rows = [{**row, "loadPercent": loads.get((row["ip"], row["key"]))} for row in rows]
+        def candidates_for(pool, count):
+            known = sorted([row for row in pool if row["loadPercent"] is not None], key=lambda row: row["loadPercent"])
+            # Check the least loaded candidates first; ties are randomized.
+            if known:
+                random_pool = self.sample(known, len(known))
+                return sorted(random_pool, key=lambda row: row["loadPercent"])[:count]
+            return self.sample(pool, min(count, len(pool)))
         if country == "*":
             # Distribute a bounded global sample across countries, not large fleets.
             countries = sorted({row["country"] for row in rows})
@@ -107,28 +166,36 @@ class ProtonSelector:
             candidates = []
             for name in selected:
                 pool = [row for row in rows if row["country"] == name]
-                candidates.extend(self.sample(pool, min(2, len(pool))))
+                candidates.extend(candidates_for(pool, 2))
+            # Always include the globally least loaded countries in the bounded
+            # global sample when the provider actually supplies telemetry.
+            if loads:
+                selected = sorted(countries, key=lambda name: min((row["loadPercent"] for row in rows if row["country"] == name and row["loadPercent"] is not None), default=101))[:24]
+                candidates = [row for name in selected for row in candidates_for([row for row in rows if row["country"] == name], 2)]
         else:
             pool = [row for row in rows if row["country"] == country]
-            candidates = self.sample(pool, min(24, len(pool)))
+            candidates = candidates_for(pool, 24)
         if not candidates:
             raise ValueError("Ingen Proton P2P-servere i det valgte land")
         with ThreadPoolExecutor(max_workers=12) as pool:
             measurements = list(pool.map(lambda row: self.probe(row["ip"]), candidates))
-        ranked = sorted([(latency, row) for row, latency in zip(candidates, measurements) if type(latency) in (int, float) and 0 <= latency < 10000], key=lambda pair: pair[0])
+        ranked = sorted([(latency, row) for row, latency in zip(candidates, measurements) if type(latency) in (int, float) and 0 <= latency < 10000], key=lambda pair: (pair[1]["loadPercent"] if pair[1]["loadPercent"] is not None else 101, pair[0]))
         if not ranked:
             raise ValueError("Ingen af de maalte Proton-servere svarede")
         return ranked, len(candidates)
 
-    def recommendations(self):
+    def recommendations(self, force=False):
         with self.measure_lock:
-            if self.recommended and self.clock() < self.measured_until:
+            if not force and self.recommended and self.clock() < self.measured_until:
                 return self.recommended
+            if force:
+                self.catalog(force=True)
+                self.server_loads(force=True)
             ranked, tested = self.measure("*")
             countries = {}
             for latency, row in ranked:
-                countries.setdefault(row["country"], {"country": row["country"], "server": row["hostname"], "latencyMs": round(latency, 1)})
-            self.recommended = {"recommendations": list(countries.values()), "tested": tested, "measuredAt": self.clock()}
+                countries.setdefault(row["country"], {"country": row["country"], "server": row["hostname"], "latencyMs": round(latency, 1), "loadPercent": row["loadPercent"]})
+            self.recommended = {"recommendations": list(countries.values()), "tested": tested, "measuredAt": self.clock(), "loadMeasuredAt": self.loads_at, "loadAvailable": self.loads_at is not None}
             self.measured_until = self.clock() + 60
             return self.recommended
 

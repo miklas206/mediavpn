@@ -14,6 +14,11 @@ from mediavpn.runtime import Runtime
 PUBLIC = base64.b64encode(b'x' * 32).decode()
 
 
+@pytest.fixture(autouse=True)
+def no_real_load_requests(monkeypatch):
+    monkeypatch.setattr(ProtonSelector, "download_load", staticmethod(lambda: b'{"Code":1000,"LogicalServers":[]}'))
+
+
 def selector(probe=lambda address: 10):
     rows = [{"vpn": "wireguard", "country": "Denmark", "hostname": "dk-01.protonvpn.net", "wgpubkey": PUBLIC, "port_forward": True, "ips": ["8.8.8.8", "1.1.1.1", "192.168.1.1"]}]
     return ProtonSelector(fetch=lambda: json.dumps({"timestamp": 1000, "servers": rows}).encode(), clock=lambda: 1001, probe=probe)
@@ -39,7 +44,7 @@ def test_global_selection_and_recommendations_cache():
     service = selector(lambda address: calls.append(address) or (5 if address == "1.1.1.1" else 20))
     assert service.choose("*")["ip"] == "1.1.1.1"
     result = service.recommendations()
-    assert result["recommendations"] == [{"country": "Denmark", "server": "dk-01.protonvpn.net", "latencyMs": 5.0}]
+    assert result["recommendations"] == [{"country": "Denmark", "server": "dk-01.protonvpn.net", "latencyMs": 5.0, "loadPercent": None}]
     assert result["tested"] == 2
     assert result["measuredAt"] == 1001
     count = len(calls)
@@ -126,10 +131,131 @@ def test_mode_change_stops_attached_client_before_tunnel(tmp_path, monkeypatch):
     from mediavpn.seedbox import Seedbox
     events = []
     monkeypatch.setattr(Seedbox, "stop", lambda self: events.append("client stopped"))
-    runtime = SimpleNamespace(enabled=True, stop=lambda identifier: events.append("tunnel stopped"))
+    runtime = SimpleNamespace(enabled=True, status=lambda identifier: {"state": "stopped"}, stop=lambda identifier: events.append("tunnel stopped"))
     client = TestClient(create_app(tmp_path, "http://testserver", runtime=runtime, selector=selector()))
     login(client)
     identifier = client.post("/api/profiles", json={"name": "Test", "configuration": CONFIG, "port_forwarding": True}).json()["id"]
     (tmp_path / "seedbox.json").write_text(json.dumps({"enabled": True, "profileId": identifier}))
     assert client.put(f"/api/profiles/{identifier}/server-selection", json={"country": "Denmark"}).status_code == 200
     assert events == ["client stopped", "tunnel stopped"]
+
+
+@pytest.mark.parametrize("desired,state", [(1, "connected"), (1, "stopped"), (0, "connected"), (0, "stopped")])
+def test_server_change_preserves_running_intent_and_attachment(tmp_path, monkeypatch, desired, state):
+    import sqlite3
+    from mediavpn.seedbox import Seedbox
+    events = []
+    monkeypatch.setattr(Seedbox, "stop", lambda self: events.append("client stopped"))
+    runtime = SimpleNamespace(enabled=True, status=lambda identifier: {"state": state}, stop=lambda identifier: events.append("tunnel stopped"))
+    app = create_app(tmp_path, "http://testserver", runtime=runtime, selector=selector())
+    client = TestClient(app)
+    login(client)
+    identifier = client.post("/api/profiles", json={"name": "Test", "configuration": CONFIG, "port_forwarding": True}).json()["id"]
+    with sqlite3.connect(tmp_path / "mediavpn.sqlite") as db:
+        db.execute("UPDATE profiles SET desired=?", (desired,))
+    settings = json.dumps({"enabled": True, "profileId": identifier})
+    (tmp_path / "seedbox.json").write_text(settings)
+    endpoint = f"/api/profiles/{identifier}/server-selection"
+    response = client.put(endpoint, json={"country": "Denmark"})
+    resume = bool(desired or state == "connected")
+    assert response.status_code == 200
+    assert response.json()["reconnecting"] == resume
+    assert response.json()["restartRequired"] is False
+    assert events == ["client stopped", "tunnel stopped"]
+    with sqlite3.connect(tmp_path / "mediavpn.sqlite") as db:
+        assert db.execute("SELECT auto_country,desired FROM profiles").fetchone() == ("Denmark", int(resume))
+    assert (tmp_path / "seedbox.json").read_text() == settings
+    # Explicit re-selection of an active choice must also reconnect; a stopped
+    # choice remains idempotent and never unexpectedly starts a tunnel.
+    events.clear()
+    assert client.put(endpoint, json={"country": "Denmark"}).status_code == 200
+    assert events == (["client stopped", "tunnel stopped"] if resume else [])
+
+
+def test_catalog_only_accepts_wireguard_forwarding_servers_with_public_ipv4():
+    rows = [
+        {"vpn": vpn, "country": country, "hostname": "node.protonvpn.net", "wgpubkey": PUBLIC, "port_forward": forwarding, "ips": ips}
+        for vpn, country, forwarding, ips in [
+            ("wireguard", "Denmark", True, ["8.8.8.8", "2606:4700:4700::1111"]),
+            ("wireguard", "NoP2P", False, ["1.1.1.1"]),
+            ("wireguard", "IPvSixOnly", True, ["2606:4700:4700::1111"]),
+            ("wireguard", "Private", True, ["192.168.1.1"]),
+            ("openvpn", "OtherProtocol", True, ["9.9.9.9"]),
+        ]
+    ]
+    service = ProtonSelector(fetch=lambda: json.dumps({"timestamp": 1000, "servers": rows}).encode(), clock=lambda: 1001, probe=lambda ip: 1)
+    assert service.countries() == ["Denmark"]
+    assert service.choose("*")["ip"] == "8.8.8.8"
+
+
+def test_load_ranks_before_latency_and_refresh_fetches_fresh_data():
+    service = selector(lambda ip: 1 if ip == "8.8.8.8" else 20)
+    loads = [80, 10]
+    calls = []
+    def fetch_load():
+        calls.append(True)
+        return json.dumps({"Code": 1000, "LogicalServers": [
+            {"Load": load, "Features": 4, "Status": 1, "Servers": [{"Status": 1, "EntryIP": ip, "X25519PublicKey": PUBLIC}]}
+            for ip, load in zip(["8.8.8.8", "1.1.1.1"], loads)
+        ]}).encode()
+    service.fetch_load = fetch_load
+    assert service.choose("Denmark")["ip"] == "1.1.1.1"
+    result = service.recommendations()
+    assert result["loadAvailable"] and result["recommendations"][0]["loadPercent"] == 10
+    assert service.recommendations() == result and len(calls) == 1
+    loads[:] = [5, 90]
+    fresh = service.recommendations(force=True)
+    assert len(calls) == 2 and fresh["recommendations"][0]["loadPercent"] == 5
+    assert fresh["recommendations"][0]["latencyMs"] == 1
+
+
+def test_unavailable_or_invalid_load_never_becomes_zero_percent():
+    service = selector()
+    for data in [b'{"Code":401}', b'{"Code":1000,"LogicalServers":[{"Load":true}]}', b'x' * (24 * 1024 * 1024 + 1)]:
+        service.fetch_load = lambda: data
+        result = service.recommendations(force=True)
+        assert not result["loadAvailable"] and result["loadMeasuredAt"] is None
+        assert result["recommendations"][0]["loadPercent"] is None
+    def unavailable():
+        raise OSError("unavailable")
+    service.fetch_load = unavailable
+    assert not service.recommendations(force=True)["loadAvailable"]
+
+
+def test_supervisor_reconnects_without_another_start_request(tmp_path, monkeypatch):
+    import sqlite3
+    import threading
+    from mediavpn.seedbox import Seedbox
+    started = threading.Event()
+    reconciled = threading.Event()
+    monkeypatch.setattr(Seedbox, "stop", lambda self: None)
+    monkeypatch.setattr(Seedbox, "reconcile", lambda self: reconciled.set() if started.is_set() else None)
+    runtime = SimpleNamespace(enabled=True, status=lambda identifier: {"state": "connected"},
+        container=lambda identifier: None, stop=lambda identifier: None,
+        start=lambda identifier, **options: started.set() if options == {"port_forwarding": True, "auto_country": "Denmark"} else None)
+    with TestClient(create_app(tmp_path, "http://testserver", runtime=runtime, selector=selector())) as client:
+        login(client)
+        identifier = client.post("/api/profiles", json={"name": "Test", "configuration": CONFIG, "port_forwarding": True}).json()["id"]
+        assert client.put(f"/api/profiles/{identifier}/server-selection", json={"country": "Denmark"}).json()["reconnecting"]
+        assert reconciled.wait(2), "Saving the selection must wake the supervisor immediately"
+    # Desired state survives an app restart; no second user Start is needed.
+    started.clear()
+    reconciled.clear()
+    with TestClient(create_app(tmp_path, "http://testserver", runtime=runtime, selector=selector())):
+        assert reconciled.wait(2)
+    with sqlite3.connect(tmp_path / "mediavpn.sqlite") as db:
+        assert db.execute("SELECT desired FROM profiles").fetchone()[0] == 1
+
+
+def test_recommendation_refresh_requires_login_csrf_and_bypasses_cache(tmp_path):
+    service = selector()
+    calls = []
+    original = service.recommendations
+    service.recommendations = lambda **kwargs: calls.append(kwargs) or original(**kwargs)
+    client = TestClient(create_app(tmp_path, "http://testserver", selector=service))
+    path = "/api/proton/recommendations/refresh"
+    assert client.post(path, json={}).status_code == 401
+    login(client)
+    assert client.post(path, json={}, headers={"X-MediaVPN-CSRF": "wrong"}).status_code == 403
+    assert client.post(path, json={}).status_code == 200
+    assert calls == [{"force": True}]

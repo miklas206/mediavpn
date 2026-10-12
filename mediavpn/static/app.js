@@ -75,32 +75,34 @@ async function chooseServer(profile) {
   finally { select.disabled = false; document.querySelector('#save-server').disabled = false; }
   void loadRecommendations(cycle);
 }
-async function loadRecommendations(cycle) {
+async function loadRecommendations(cycle, force = false) {
   try {
-    const result = await api('proton/recommendations');
+    const result = force ? await api('proton/recommendations/refresh', {}) : await api('proton/recommendations');
     if (cycle !== serverDialogCycle || !serverDialog.open) return;
-    document.querySelector('#server-measurement').textContent = `Anbefalet efter ${result.tested} målte kandidater · ${new Date(result.measuredAt * 1000).toLocaleTimeString('da-DK')} · lavere ms er bedre. Målingen kan være op til ét minut gammel.`;
+    document.querySelector('#server-measurement').textContent = `Anbefalet efter ${result.tested} målte kandidater · ${new Date(result.measuredAt * 1000).toLocaleTimeString('da-DK')} · laveste belastning prioriteres, derefter svartid. Målingen kan være op til ét minut gammel.`;
+    if (!result.loadAvailable) document.querySelector('#server-measurement').textContent += ' Proton udleverer ikke belastningsdata lige nu; anbefalingerne bruger kun målt svartid.';
     const table = node('table');
-    const head = node('thead'); const heading = node('tr'); heading.append(node('th', 'Land'), node('th', 'Svartid'), node('th', 'Målt server')); head.append(heading);
+    const head = node('thead'); const heading = node('tr'); heading.append(node('th', 'Land'), node('th', 'Belastning'), node('th', 'Svartid'), node('th', 'Målt server')); head.append(heading);
     const body = node('tbody');
     for (const row of result.recommendations.slice(0, 6)) {
       const line = node('tr'); const country = node('td');
       const choose = node('button', row.country); choose.type = 'button'; choose.onclick = () => { document.querySelector('#server-country').value = row.country; };
       const flag = countryFlag(row.country); if (flag) choose.append(flag);
-      country.append(choose); line.append(country, node('td', `${row.latencyMs} ms`), node('td', row.server)); body.append(line);
+      country.append(choose); line.append(country, node('td', row.loadPercent == null ? 'Ukendt' : `${row.loadPercent} %`), node('td', `${row.latencyMs} ms`), node('td', row.server)); body.append(line);
     }
     table.append(head, body); document.querySelector('#server-recommendations').replaceChildren(table);
   } catch {
     if (cycle === serverDialogCycle) document.querySelector('#server-measurement').textContent = 'Anbefalinger kunne ikke måles. Du kan stadig vælge land; svartiden måles ved start.';
   }
 }
+document.querySelector('#refresh-servers').onclick = event => action(event.currentTarget, async () => { document.querySelector('#server-measurement').textContent = 'Henter friske data og måler serverne…'; await loadRecommendations(serverDialogCycle, true); });
 document.querySelector('#close-server').onclick = () => serverDialog.close();
 document.querySelector('#server-form').onsubmit = async event => {
   event.preventDefault();
   await action(document.querySelector('#save-server'), async () => {
-    if (!confirm('Gem servervalg og stop forbindelsen? Start profilen igen efter ændringen.')) return;
-    await api(`profiles/${serverProfile}/server-selection`, {country: document.querySelector('#server-country').value || null}, 'PUT');
-    serverDialog.close(); await refresh(); notice('Servervalg gemt. Tryk Start for at forbinde.', 'success');
+
+    const result = await api(`profiles/${serverProfile}/server-selection`, {country: document.querySelector('#server-country').value || null}, 'PUT');
+    serverDialog.close(); await refresh(); notice(result.reconnecting ? 'Servervalg gemt. VPN genforbindes automatisk; tilsluttede apps afventer den nye verificerede port.' : 'Servervalg gemt. Profilen forbliver stoppet, indtil du trykker Start.', 'success');
   });
 };
 async function refresh() {

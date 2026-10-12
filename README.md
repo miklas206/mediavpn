@@ -98,14 +98,14 @@ automatisk valg i et bestemt land, automatisk valg på tværs af lande eller
 beholde serveren fra konfigurationen. Dialogen viser de bedste målte lande
 med servernavn og svartid; alle lande kan vælges i listen. Anbefalinger måles
 fra MediaVPN-værten og caches i ét minut. De ændrer aldrig en aktiv tunnel.
-Ændringer stopper den tilknyttede torrentklient og tunnelen; tryk Start bagefter.
+Servervalg stopper kort den tilknyttede torrentklient og tunnelen. En aktiv eller ønsket startet profil genforbindes automatisk af supervisoren; en stoppet profil forbliver stoppet. Det gemte startønske overlever app-genstart. MediaSeed bliver bundet til den nye tunnels netværk og får dens verificerede NAT-PMP-port uden at ændre torrenternes start/stop-valg.
 
-Ved start måles to TCP-forbindelser til port 443 på op til 24 tilfældigt udvalgte
-P2P/WireGuard-endpoints i landet. Den laveste gennemsnitlige svartid vinder.
+Ved start måles to TCP-forbindelser til port 443 på op til 24 udvalgte
+P2P/WireGuard-endpoints i landet. Med belastningsdata måles de mindst belastede kandidater først; laveste belastning prioriteres, derefter gennemsnitlig svartid. Uden data vælges kandidater tilfældigt og rangeres efter svartid.
 Globalt valg (`auto_country="*"`) måler op til 48 kandidater fordelt på op til
-24 tilfældigt udvalgte lande. Det er den bedste blandt de målte kandidater,
+24 lande, prioriteret efter belastning når data findes, ellers tilfældigt. Det er den bedste blandt de målte kandidater,
 ikke en garanti for den bedste server i hele kataloget.
-Det måler hverken serverbelastning eller downloadhastighed. Serveren beholdes,
+TCP-målingen viser ikke downloadhastighed; belastning kommer separat fra Proton. Serveren beholdes,
 mens tunnelen kører; et nyt start efter stop foretager et nyt valg.
 Ingen svar eller en ugyldig serverliste giver en fejl, uden automatisk fallback
 til en uverificeret forbindelse. MediaSeeds eksisterende VPN-kontrol bevares.
@@ -123,3 +123,6 @@ Manual MediaSeed imports can explicitly choose immediate start or pause. The int
 MediaSeed automatic cleanup imports may include one validated `MediaSeed-Cleanup-<24 lowercase hex>` tag. Upload and magnet RPC preserve that marker. `setShareLimits` additionally permits exactly `ratioLimit=-1`, `seedingTimeLimit=-1`, `inactiveSeedingTimeLimit=-1` so MediaSeed can enforce combined goals without native early stops. Existing finite policy validation and the readiness gate are preserved; this does not select a VPN or change its configuration.
 
 Torrent imports and `setShareLimits` use `shareLimitAction=Stop`, including compatibility with callers that omit it. qBittorrent 5.2 requires this field for share-limit changes. Other native actions are rejected; only an explicit `torrents/delete` request with its validated `deleteFiles` flag may remove content.
+
+
+Serveranbefalinger viser målt svartid og rapporteret belastning separat. Automatisk valg prioriterer laveste belastning blandt de målte, tilgængelige kandidater, derefter svartid. Belastning matches på IPv4-endpoint og WireGuard-public key fra Protons API; begge servere skal være aktive og P2P-egnede. Data caches højst ét minut. Hvis API-adgang eller data mangler, står belastning som Ukendt, og valget bruger kun svartid. En WireGuard-fil giver ikke i sig selv adgang til Protons konto-API; der gemmes ingen Proton-loginoplysninger. Opdater anbefalinger genhenter katalog og belastningsdata og måler igen uden at skifte den aktive server. IPv4 og P2P/port-forwarding er faste krav ved automatisk valg.
