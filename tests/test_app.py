@@ -79,8 +79,10 @@ def test_machine_upload_passes_explicit_start_choice_through_gate(tmp_path, monk
     monkeypatch.setattr(Seedbox, "reconcile", lambda self: None)
     with TestClient(create_app(tmp_path, "http://testserver", runtime=SimpleNamespace(enabled=True))) as client:
         token = (tmp_path / "integrations" / "mediaseed.token").read_text().strip()
-        for query, expected in [("", "true"), ("?start=true", "false"), ("?start=false", "true")]:
+        for query, expected in [("", "true"), ("?start=true", "false"), ("?start=false", "true"), ("?tags=MediaSeed-Cleanup-" + "a" * 24, "true")]:
             response = client.post("/api/integration/upload" + query, content=b"dee", headers={"X-MediaSeed-Key": token})
             assert response.status_code == 200
             assert captured[-1][0]["stopped"] == captured[-1][0]["paused"] == expected
             assert captured[-1][1] == b"dee"
+            if "tags=" in query:
+                assert captured[-1][0]["tags"] == "MediaSeed-Cleanup-" + "a" * 24

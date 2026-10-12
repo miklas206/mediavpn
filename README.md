@@ -119,3 +119,7 @@ den uploadede `.conf` bevares. Profiler med PresharedKey kan kun bruges manuelt.
 Den samme private key må ikke bruges samtidigt på en anden maskine.
 
 Manual MediaSeed imports can explicitly choose immediate start or pause. The integration upload defaults to `start=false`; `start=true` passes consistent `stopped=false` / `paused=false` flags. RPC imports accept only matching true/false mode flags. Both modes retain the fresh readiness check under the controller lock before qBittorrent delivery. RSS imports remain paused until their existing per-item approval.
+
+MediaSeed automatic cleanup imports may include one validated `MediaSeed-Cleanup-<24 lowercase hex>` tag. Upload and magnet RPC preserve that marker. `setShareLimits` additionally permits exactly `ratioLimit=-1`, `seedingTimeLimit=-1`, `inactiveSeedingTimeLimit=-1` so MediaSeed can enforce combined goals without native early stops. Existing finite policy validation and the readiness gate are preserved; this does not select a VPN or change its configuration.
+
+Torrent imports and `setShareLimits` use `shareLimitAction=Stop`, including compatibility with callers that omit it. qBittorrent 5.2 requires this field for share-limit changes. Other native actions are rejected; only an explicit `torrents/delete` request with its validated `deleteFiles` flag may remove content.

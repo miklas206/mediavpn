@@ -280,16 +280,22 @@ class Seedbox:
                 raise HTTPException(422, "Invalid RSS feed path")
         if method == "POST":
             fields = {
-                "torrents/add": {"urls", "stopped", "paused", "savepath", "ratioLimit", "seedingTimeLimit", "category"},
+                "torrents/add": {"urls", "stopped", "paused", "savepath", "ratioLimit", "seedingTimeLimit", "shareLimitAction", "category", "tags"},
                 "torrents/start": {"hashes"}, "torrents/stop": {"hashes"},
                 "torrents/delete": {"hashes", "deleteFiles"},
-                "torrents/setShareLimits": {"hashes", "ratioLimit", "seedingTimeLimit", "inactiveSeedingTimeLimit"},
+                "torrents/setShareLimits": {"hashes", "ratioLimit", "seedingTimeLimit", "inactiveSeedingTimeLimit", "shareLimitAction"},
                 "torrents/setFilePriority": {"hash", "id", "priority"},
                 "rss/addFeed": {"url", "path"}, "rss/removeItem": {"path"}, "rss/refreshItem": {"itemPath"},
                 "torrents/createCategory": {"category", "savePath"}, "torrents/topPrio": {"hashes"},
             }
             if not set(payload).issubset(fields[path]):
                 raise HTTPException(422, "Unsupported torrent fields")
+            if path in {"torrents/add", "torrents/setShareLimits"}:
+                if payload.get("shareLimitAction", "Stop") != "Stop":
+                    raise HTTPException(422, "Native share limits may only stop and preserve files")
+                # qBittorrent 5.2 requires this field for setShareLimits. Keep
+                # older callers compatible while preventing global auto-delete.
+                payload = {**payload, "shareLimitAction": "Stop"}
             if path == "torrents/createCategory":
                 if not re.fullmatch(r"MediaSeed-RSS-[a-f0-9]{24}", str(payload.get("category", ""))) or not re.fullmatch(r"/downloads(?:/[A-Za-z0-9_-]+)*", str(payload.get("savePath", ""))):
                     raise HTTPException(422, "Invalid RSS category")
@@ -298,6 +304,8 @@ class Seedbox:
                 if not re.fullmatch(r"[a-fA-F0-9]{40}|[a-fA-F0-9]{64}", identifier):
                     raise HTTPException(422, "Invalid torrent hash")
             elif path == "torrents/add":
+                if not re.fullmatch(r"(?:MediaSeed-Cleanup-[a-f0-9]{24})?", str(payload.get("tags", ""))):
+                    raise HTTPException(422, "Invalid cleanup marker")
                 if payload.get("stopped") not in {"true", "false"} or payload.get("paused") != payload.get("stopped"):
                     raise HTTPException(422, "Choose a consistent torrent start mode")
                 if not re.fullmatch(r"/downloads(?:/[A-Za-z0-9_-]+)*", str(payload.get("savepath", ""))):
@@ -306,7 +314,8 @@ class Seedbox:
                     raise HTTPException(422, "Expected a magnet or torrent file")
             if "ratioLimit" in payload:
                 try:
-                    if not 1 <= float(payload["ratioLimit"]) <= 1000 or str(payload.get("seedingTimeLimit")) != "2940":
+                    unlimited = path == "torrents/setShareLimits" and str(payload["ratioLimit"]) == "-1" and str(payload.get("seedingTimeLimit")) == "-1" and str(payload.get("inactiveSeedingTimeLimit")) == "-1"
+                    if not unlimited and (not 1 <= float(payload["ratioLimit"]) <= 1000 or str(payload.get("seedingTimeLimit")) != "2940"):
                         raise ValueError()
                 except (ValueError, TypeError):
                     raise HTTPException(422, "Invalid seeding policy") from None
