@@ -20,6 +20,8 @@ def test_managed_login_roles_revocation_and_one_time_callback(tmp_path, monkeypa
         assert request.url.host == "hub.example"
         if not online:
             raise httpx.ConnectError("Synthetic outage")
+        if request.url.path.endswith("origin"):
+            return httpx.Response(200, json={"data": {"origin": "https://vpn.example"}})
         if request.url.path.endswith("exchange"):
             exchanges.append(request.content)
             return httpx.Response(200, json={"data": {"token": "t" * 64, "expires": int(time.time()) + 600, "user": {"id": "member", "username": "test", "role": role}}})

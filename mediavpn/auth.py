@@ -21,6 +21,7 @@ class Credentials(BaseModel):
 
 def install_auth(app, database, base, hub_transport=None):
     hub = HubLogin(app, database, base, COOKIE, hub_transport)
+    app.state.hub_login = hub
 
     async def authorized(request: Request):
         digest = hashlib.sha256(request.cookies.get(COOKIE, "").encode()).hexdigest()
@@ -36,9 +37,9 @@ def install_auth(app, database, base, hub_transport=None):
         return {**dict(session), **public}
 
     @app.get("/api/auth/status")
-    def status():
+    async def status():
         if hub.enabled:
-            return {"needsSetup": False, "managed": True, "loginUrl": base + "/auth/hub/start"}
+            return {"needsSetup": False, "managed": True, "loginUrl": await hub.origin() + "/auth/hub/start"}
         with database() as connection:
             return {"needsSetup": connection.execute("SELECT COUNT(*) FROM accounts").fetchone()[0] == 0}
 

@@ -113,7 +113,8 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None):
                 pass
 
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
-    app.add_middleware(TrustedHostMiddleware, allowed_hosts=[origin.hostname])
+    if not os.environ.get("MEDIAVPN_HUB_URL"):
+        app.add_middleware(TrustedHostMiddleware, allowed_hosts=[origin.hostname])
 
     @app.exception_handler(RequestValidationError)
     async def invalid_input(request, error):
@@ -121,7 +122,16 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None):
 
     @app.middleware("http")
     async def security(request: Request, call_next):
-        if request.method not in {"GET", "HEAD", "OPTIONS"} and request.headers.get("origin") not in {None, base}:
+        origins = {base}
+        hub = app.state.hub_login
+        if hub.enabled and (request.url.hostname != origin.hostname or request.headers.get("origin") not in {None, base}):
+            try:
+                origins.add(await hub.origin())
+            except HTTPException as error:
+                return JSONResponse({"detail": error.detail}, status_code=error.status_code)
+        if hub.enabled and request.url.hostname not in {urlsplit(value).hostname for value in origins}:
+            return Response(status_code=400)
+        if request.method not in {"GET", "HEAD", "OPTIONS"} and request.headers.get("origin") not in {None, *origins}:
             return Response(status_code=403)
         if request.headers.get("content-length"):
             try:

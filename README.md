@@ -28,6 +28,11 @@ private key with the app or proxy.
 Set `MEDIAVPN_HUB_BROWSER_URL` when browser login uses a different public HTTPS
 hub origin. It defaults to `MEDIAVPN_HUB_URL`; server-side identity checks always
 use the verified `MEDIAVPN_HUB_URL`.
+Saving an app domain in MediaHub settings updates the opening and SSO callback
+origin together. MediaVPN reads the registration over verified TLS; the local
+host and the currently registered domain are accepted. DNS, HTTPS and proxy
+routing must already point to this app. Reset restores the configured local
+HTTPS origin. Proxies must preserve the original Host header.
 
 Opening the managed app automatically starts state/PKCE hub login if its app
 session is missing. No separate app account or first password login is needed.

@@ -37,7 +37,10 @@ class HubLogin:
             """)
 
         @app.get("/auth/hub/start")
-        def start():
+        async def start(request: Request):
+            origin = await self.origin()
+            if request.headers.get("host", "").lower() != urlsplit(origin).netloc.lower():
+                return RedirectResponse(origin + "/auth/hub/start", status_code=303, headers={"Cache-Control": "no-store"})
             state, verifier = secrets.token_urlsafe(48), secrets.token_urlsafe(48)
             challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).decode().rstrip("=")
             with database() as db:
@@ -68,10 +71,17 @@ class HubLogin:
                 db.execute("DELETE FROM hub_sessions WHERE digest NOT IN (SELECT digest FROM sessions)")
                 db.execute("INSERT INTO sessions VALUES (?,?,?)", (digest, csrf, min(identity["expires"], time.time() + 43200)))
                 db.execute("INSERT INTO hub_sessions VALUES (?,?,?)", (digest, identity["token"], public["id"]))
-            response = RedirectResponse(self.base + "/", status_code=303, headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"})
+            response = RedirectResponse("/", status_code=303, headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"})
             response.set_cookie(cookie, token, httponly=True, secure=True, samesite="strict", max_age=43200)
             response.delete_cookie("mediavpn_sso_state", path="/auth/hub")
             return response
+
+    async def origin(self):
+        value = (await self.request("origin?packageId=" + PACKAGE)).get("origin", "")
+        parsed = urlsplit(value)
+        if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or parsed.path or parsed.query or parsed.fragment:
+            raise HTTPException(503, "Invalid MediaHub app origin")
+        return value
 
     async def request(self, path, method="GET", payload=None, token=None):
         try:
