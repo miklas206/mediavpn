@@ -1,9 +1,15 @@
 # MediaVPN
 
-Verified runtime observations include Gluetun's public-IP country when supplied.
-MediaSeed receives that country and the check timestamp with its integration
-status only when its route is ready. Unknown or unavailable country does not
-alter the VPN gate; an unhealthy tunnel never supplies a verified country.
+Verified runtime observations match the active public IP against
+[Proton's published geofeed](https://ip.me/static/geofeeds/geofeed-mm.csv),
+following [FjordVPN's location approach](https://github.com/qlerup/fjordvpn/blob/main/relay/observer.py).
+The bounded HTTPS feed is cached for six hours, with a one-minute retry backoff.
+No user IP is sent in the lookup request. The most specific matching network
+supplies an ISO country code; missing, expired or unavailable data means unknown.
+Generic GeoIP and profile names are not used as fallback. This supports Proton
+exit addresses; other providers remain unknown unless listed in that feed.
+MediaSeed receives the country and check timestamp only when its route is ready.
+Location failure does not alter VPN readiness. Country does not prove physical location.
 
 Independent MediaHub-family VPN profile manager, using FjordVPN as a functional reference, not copied application source. MediaHub Core/Agent and existing VPN installations are not required or modified.
 

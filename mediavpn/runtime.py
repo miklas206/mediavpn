@@ -6,16 +6,18 @@ from datetime import datetime, timezone
 from pathlib import PurePosixPath
 
 from fastapi import HTTPException
+from .location import ExitLocation
 
 OWNER = "org.mediahub.mediavpn.owner"
 
 
 class Runtime:
-    def __init__(self, data, enabled=False, host_data=None, client=None):
+    def __init__(self, data, enabled=False, host_data=None, client=None, location=None):
         self.data = data
         self.enabled = enabled
         self.host_data = PurePosixPath(host_data) if host_data else None
         self.client = client
+        self.location = location or ExitLocation()
         self.image = os.environ.get("MEDIAVPN_GLUETUN_IMAGE", "qmcgaw/gluetun:v3.40.0")
 
     def docker(self):
@@ -71,8 +73,10 @@ class Runtime:
                                 forwarded_port = port
                         except Exception:
                             pass
-                        country = address.get("country")
-                        country = country.strip() if isinstance(country, str) and len(country) <= 80 and country.isprintable() else None
+                        try:
+                            country = self.location.country(str(public_ip))
+                        except Exception:
+                            country = None  # Informational location cannot close a verified tunnel gate.
                         return {"state": "connected", "healthy": True, "checkedAt": time.time(), "publicIp": str(public_ip), "forwardedPort": forwarded_port, "country": country or None}
             return {"state": state, "healthy": False, "checkedAt": time.time(), "publicIp": None, "forwardedPort": None}
         except HTTPException:
