@@ -2,6 +2,7 @@ import os
 import ipaddress
 import json
 import time
+import re
 from datetime import datetime, timezone
 from pathlib import PurePosixPath
 
@@ -80,6 +81,10 @@ class Runtime:
                         except Exception:
                             country = None  # Informational location cannot close a verified tunnel gate.
                         labels = getattr(container, "labels", {})
+                        if not country:
+                            reported = address.get("country")
+                            if isinstance(reported, str) and re.fullmatch(r"[A-Za-z][A-Za-z .'-]{1,59}", reported) and reported.lower() not in {"unknown", "n/a", "none"}:
+                                country = reported
                         return {"state": "connected", "healthy": True, "checkedAt": time.time(), "publicIp": str(public_ip), "forwardedPort": forwarded_port, "country": country or None, "selectedServer": labels.get("org.mediahub.mediavpn.server"), "latencyMs": labels.get("org.mediahub.mediavpn.latency")}
             return {"state": state, "healthy": False, "checkedAt": time.time(), "publicIp": None, "forwardedPort": None}
         except HTTPException:

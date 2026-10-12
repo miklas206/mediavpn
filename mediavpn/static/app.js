@@ -21,6 +21,19 @@ function node(tag, text, className) { const element = document.createElement(tag
 async function action(button, handler) { if (busy) return; busy = true; button.disabled = true; try { await handler(); } catch(error) { notice(error.message); } finally { busy = false; button.disabled = false; } }
 function control(text, handler, className) { const button = node('button',text,className); button.type = 'button'; button.onclick = () => action(button,handler); return button; }
 const statusNames = {disabled:'Runtime ikke aktiveret',stopped:'Stoppet',connected:'Forbundet',unverified:'Ikke verificeret',starting:'Starter',unavailable:'Runtime utilgængelig'};
+function countryLabel(country) {
+  if (!country) return 'Land ukendt';
+  try {
+    const english = new Intl.DisplayNames(['en'], {type: 'region'});
+    const danish = new Intl.DisplayNames(['da'], {type: 'region'});
+    if (/^[A-Z]{2}$/.test(country)) return danish.of(country);
+    for (let first = 65; first <= 90; first++) for (let second = 65; second <= 90; second++) {
+      const code = String.fromCharCode(first, second);
+      if (english.of(code) === country) return danish.of(code);
+    }
+  } catch {}
+  return country;
+}
 let serverProfile;
 let serverDialogCycle = 0;
 const serverDialog = document.querySelector('#server-dialog');
@@ -82,6 +95,7 @@ async function refresh() {
     const item = node('article',undefined,'profile'); const details = node('div');
     details.append(node('h2',profile.name),node('span',statusNames[profile.state] || 'Ukendt','status ' + (profile.healthy ? 'connected' : '')),node('p',`WireGuard · ${profile.endpoint}:${profile.port}`),node('p',`Offentlig IP: ${profile.publicIp || 'Ikke verificeret'} · VPN-port: ${profile.forwardedPort || 'Ikke verificeret'}`));
     const controls = node('div',undefined,'actions');
+    details.append(node('p', `Land: ${countryLabel(profile.country)}`));
     details.append(node('p', profile.auto_country ? `Automatisk servervalg · ${profile.auto_country === '*' ? 'på tværs af lande' : profile.auto_country}${profile.selectedServer ? ' · ' + profile.selectedServer + ' · ' + profile.latencyMs + ' ms ved valg' : ' · vælges ved start'}` : 'Server fra din konfiguration'));
     controls.append(control('Servervalg', () => chooseServer(profile)));
     const start = control('Start',async()=>{await api(`profiles/${profile.id}/start`,{}); await refresh(); notice('Start anmodet. Forbindelsen kontrolleres.','success');},'primary'); start.disabled = !runtime.enabled;

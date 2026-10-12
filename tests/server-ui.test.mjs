@@ -19,6 +19,8 @@ test('server selection offers manual fallback and sends only the chosen country'
   });
   vm.runInContext(readFileSync(new URL('../mediavpn/static/app.js', import.meta.url), 'utf8'), context);
   context.refresh = async () => {};
+  assert.equal(context.countryLabel('Albania'), 'Albanien');
+  assert.equal(context.countryLabel('DE'), 'Tyskland');
   await context.chooseServer({id: 'synthetic', auto_country: null});
   assert.equal(find('#server-dialog').open, true);
   assert.deepEqual(find('#server-country').children.map(row => row.value), ['', '*', 'Denmark', 'Germany']);

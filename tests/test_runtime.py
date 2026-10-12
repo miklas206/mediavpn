@@ -26,12 +26,12 @@ def test_requires_recent_successful_healthcheck(tmp_path):
     container.attrs["State"]["Health"]["Log"] = [{"End": datetime.now(timezone.utc).isoformat(), "ExitCode": 0}]
     runtime.location = ExitLocation(fetch=lambda: b'broken')
     assert runtime.status("synthetic")["healthy"] is True
-    assert runtime.status("synthetic")["country"] is None
+    assert runtime.status("synthetic")["country"] == "Sweden"
     def failed_location(address):
         raise RuntimeError("Location unavailable")
     runtime.location = SimpleNamespace(country=failed_location)
     assert runtime.status("synthetic")["healthy"] is True
-    assert runtime.status("synthetic")["country"] is None
+    assert runtime.status("synthetic")["country"] == "Sweden"
     container.exec_run = lambda command: SimpleNamespace(exit_code=0, output=b'[]' if command[0] == "ip" else b'{"status":"running","public_ip":"8.8.8.8"}')
     assert runtime.status("synthetic")["healthy"] is False
 
