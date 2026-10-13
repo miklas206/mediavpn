@@ -126,17 +126,24 @@ body { isolation: isolate; }
 :root[data-look="precision-terminal"] .confirmation-icon { border-radius: 3px; }
 :root[data-look="edge-signal"] .confirmation-dialog { border-top: 2px solid var(--accent); }
 
-/* Abstract light ribbons: enough depth to feel alive, without scenic wallpaper. */
-:root[data-look]:not([data-look="classic"]):not([data-look="precision-terminal"]) body::after {
-  content: ""; position: fixed; inset: -8%; pointer-events: none; z-index: -1;
-  background:
-    radial-gradient(ellipse 95% 65% at 55% 120%, transparent 60%, color-mix(in srgb, var(--accent) 10%, transparent) 60.4%, transparent 62%),
-    radial-gradient(ellipse 100% 80% at 105% -10%, transparent 57%, color-mix(in srgb, var(--accent) 7%, transparent) 57.4%, transparent 59%),
-    linear-gradient(115deg, transparent 30%, color-mix(in srgb, var(--accent) 4%, transparent) 43%, transparent 57%);
-}
+
+/* Each environment has a distinct abstract composition, independent of accent colors. */
+:root[data-look="midnight-glass"] { --scene: radial-gradient(ellipse at 85% 5%, #168eb866, transparent 62%), radial-gradient(ellipse at 10% 90%, #4e62b84d, transparent 58%); --ambient-shape: radial-gradient(ellipse 90% 75% at 90% -25%, transparent 65%, #39bde938 65.2%, #258bbd12 70%, transparent 73%), radial-gradient(ellipse 90% 80% at 20% 130%, transparent 60%, #707cdb30 60.2%, transparent 68%); }
+:root[data-look="soft-orbit"] { --scene: radial-gradient(ellipse at 80% 10%, #9a86d96b, transparent 56%), radial-gradient(ellipse at 10% 85%, #5b9dce52, transparent 62%); --ambient-shape: radial-gradient(circle at 82% 22%, transparent 0 17%, #b4a7f02b 17.2% 17.6%, transparent 18% 25%, #a997ec22 25.2% 25.5%, transparent 26%), radial-gradient(circle at 14% 88%, #81b6dd24, transparent 30%); }
+:root[data-look="soft-orbit"][data-appearance-mode="dark"] { --scene: radial-gradient(ellipse at 80% 10%, #8d72cb63, transparent 58%), radial-gradient(ellipse at 10% 85%, #4a8ab64d, transparent 62%); }
+:root[data-look="precision-terminal"] { --scene: linear-gradient(#65d9ac14 1px, transparent 1px), linear-gradient(90deg, #65d9ac14 1px, transparent 1px), radial-gradient(ellipse at 90% 5%, #3cba8052, transparent 65%); --ambient-shape: repeating-linear-gradient(0deg, transparent 0 63px, #77e6b70c 64px 65px), linear-gradient(110deg, transparent 35%, #64dba51c 50%, transparent 65%); }
+:root[data-look="precision-terminal"] body::before { background-size: 48px 48px, 48px 48px, cover; }
+:root[data-look="floating-layers"] { --scene: radial-gradient(ellipse at 75% 5%, #527ae47a, transparent 60%), radial-gradient(ellipse at 15% 85%, #9465c65c, transparent 60%); --ambient-shape: linear-gradient(155deg, transparent 25%, #7197ed22 25.2% 40%, transparent 40.2%), linear-gradient(25deg, transparent 65%, #ac83e626 65.2% 78%, transparent 78.2%), linear-gradient(155deg, transparent 66%, #577fe81f 66.2% 84%, transparent 84.2%); }
+:root[data-look="edge-signal"] { --scene: radial-gradient(ellipse at 95% 0%, #bf7d3266, transparent 60%), radial-gradient(ellipse at 5% 95%, #8a5b302b, transparent 65%); --ambient-shape: linear-gradient(120deg, transparent 70%, #f5b44638 70.1%, transparent 70.3%), linear-gradient(120deg, transparent 76%, #d9932524 76.1% 80%, transparent 80.1%), linear-gradient(300deg, transparent 85%, #d993252b 85.1%, transparent 85.4%); }
+:root[data-look]:not([data-look="classic"]) body::after { content: ""; position: fixed; inset: -8%; pointer-events: none; z-index: -1; background: var(--ambient-shape); }
+:root[data-appearance-mode="light"]:not([data-look="classic"]) { --scene: radial-gradient(ellipse at 80% 0%, #6bb8d64a, transparent 62%), radial-gradient(ellipse at 10% 90%, #a4a0da42, transparent 58%); }
 @media (prefers-reduced-motion: no-preference) {
-  :root[data-look="soft-orbit"] body::before, :root[data-look="edge-signal"] body::before { inset: -5%; animation: environment-drift 38s ease-in-out infinite alternate; }
-  :root[data-look]:not([data-look="classic"]):not([data-look="precision-terminal"]) body::after { animation: ambient-ribbons 44s ease-in-out infinite alternate; }
+  :root[data-look]:not([data-look="classic"]) body::before { inset: -6%; animation: environment-drift 24s ease-in-out infinite alternate; }
+  :root[data-look]:not([data-look="classic"]) body::after { animation: ambient-ribbons 30s ease-in-out infinite alternate; }
+  :root[data-look="precision-terminal"] body::after { animation: terminal-scan 22s ease-in-out infinite alternate; }
+  :root[data-look="floating-layers"] body::after { animation: floating-planes 28s ease-in-out infinite alternate; }
 }
-@keyframes ambient-ribbons { from { transform: translate3d(-1%, 0, 0) rotate(-1deg); } to { transform: translate3d(1%, -1%, 0) rotate(1deg); } }
+@keyframes ambient-ribbons { from { transform: translate3d(-2%, 1%, 0) rotate(-2deg); } to { transform: translate3d(2%, -2%, 0) rotate(2deg); } }
+@keyframes terminal-scan { from { transform: translateX(-4%); opacity: .55; } to { transform: translateX(4%); opacity: 1; } }
+@keyframes floating-planes { from { transform: translate3d(-1%, 2%, 0); } to { transform: translate3d(2%, -2%, 0); } }
 :root[data-reduced-motion="true"] body::after { animation: none; }

@@ -19,3 +19,5 @@ The first-party hub link can pass an explicit validated Light mode.
 The ambient revision adds visible abstract light fields and curved ribbons.
 The shared environment stylesheet has a new cache version; no background images
 are used and reduced-motion preferences disable movement.
+
+Appearance refinement: each theme now has its own more visible abstract animated composition (glass arcs, orbit rings, terminal grid, floating planes or signal diagonals). Reduced motion remains supported; stylesheet cache version is ambient-6.
