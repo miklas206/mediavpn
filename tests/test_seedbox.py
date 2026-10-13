@@ -6,6 +6,40 @@ from fastapi import HTTPException
 from mediavpn.seedbox import Seedbox
 
 
+@pytest.mark.parametrize("project", ["mediahub-mediaseed", "mediaseed-preview"])
+@pytest.mark.parametrize("bad_owner", [False, True])
+def test_client_creation_resolves_owned_compose_services_and_volumes(tmp_path, monkeypatch, project, bad_owner):
+    monkeypatch.setenv("MEDIAVPN_MEDIASEED_PROJECT", project)
+    events = []
+    def container(service, mounts):
+        return SimpleNamespace(labels={"com.docker.compose.project":project,"com.docker.compose.service":service},
+            attrs={"Image":"sha256:reviewed-client", "Mounts":mounts},reload=lambda:None,
+            stop=lambda **kwargs:events.append("stop source"))
+    def mount(name, target):
+        return {"Type":"volume","Name":project+"_"+name,"Destination":target}
+    source = container("qbittorrent", [mount("config","/config"),mount("downloads","/downloads")])
+    app = container("app", [mount("secrets","/secrets")])
+    def listing(all, filters):
+        assert "com.docker.compose.project="+project in filters["label"]
+        return [source if "com.docker.compose.service=qbittorrent" in filters["label"] else app]
+    prep = SimpleNamespace(wait=lambda **kwargs:{"StatusCode":0},remove=lambda **kwargs:events.append("remove preparation"))
+    created = []
+    client = SimpleNamespace(containers=SimpleNamespace(list=listing,run=lambda *args,**kwargs:prep,
+        create=lambda *args,**kwargs:created.append(kwargs)),
+        volumes=SimpleNamespace(get=lambda name:SimpleNamespace(attrs={"Labels":{"com.docker.compose.project":"unowned" if bad_owner else project}})))
+    controller = Seedbox(SimpleNamespace(docker=lambda:client,host_data=tmp_path),tmp_path)
+    if bad_owner:
+        with pytest.raises(ValueError,match="ownership changed"):
+            controller.create(SimpleNamespace(id="vpn-owned"),"vpn-generation",35458)
+        assert not events and not created
+    else:
+        controller.create(SimpleNamespace(id="vpn-owned"),"vpn-generation",35458)
+        assert events == ["stop source","remove preparation"]
+        assert created[0]["network_mode"] == "container:vpn-owned"
+        assert created[0]["volumes"][project+"_downloads"]["bind"] == "/downloads"
+        assert created[0]["volumes"][project+"_secrets"]["mode"] == "ro"
+
+
 def test_missing_vpn_port_stops_client_and_never_creates(tmp_path):
     calls = []
     child = SimpleNamespace(attrs={"State": {"Running": True}}, reload=lambda: None, stop=lambda **kwargs: calls.append("stop"))

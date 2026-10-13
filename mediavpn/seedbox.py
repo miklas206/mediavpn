@@ -84,6 +84,9 @@ class Seedbox:
         self.path = self.data / "seedbox.json"
         self.lock = threading.RLock()
         self.error = None
+        self.seed_project = os.environ.get("MEDIAVPN_MEDIASEED_PROJECT", "mediaseed-preview")
+        if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{1,80}", self.seed_project):
+            raise ValueError("Invalid MediaSeed Compose project")
         self.token_path = self.data / "integrations" / "mediaseed.token"
         self.token_path.parent.mkdir(mode=0o700, exist_ok=True)
         if not self.token_path.exists():
@@ -184,17 +187,28 @@ class Seedbox:
 
     def create(self, vpn, generation, port):
         client = self.runtime.docker()
-        source = client.containers.get("mediaseed-preview-qbittorrent-1")
-        app = client.containers.get("mediaseed-preview-app-1")
-        for container, service in ((source, "qbittorrent"), (app, "app")):
-            if container.labels.get("com.docker.compose.project") != "mediaseed-preview" or container.labels.get("com.docker.compose.service") != service:
-                raise ValueError("Unexpected MediaSeed installation")
+        def owned_service(service):
+            rows = client.containers.list(all=True, filters={"label": [
+                "com.docker.compose.project=" + self.seed_project,
+                "com.docker.compose.service=" + service,
+            ]})
+            if len(rows) != 1:
+                raise ValueError("Expected exactly one owned MediaSeed service")
+            container = rows[0]
             container.reload()
+            if container.labels.get("com.docker.compose.project") != self.seed_project or container.labels.get("com.docker.compose.service") != service:
+                raise ValueError("Unexpected MediaSeed installation")
+            return container
+        source = owned_service("qbittorrent")
+        app = owned_service("app")
         volumes = {}
         for container, target, writable in ((source, "/config", True), (source, "/downloads", True), (app, "/secrets", False)):
             mount = next((row for row in container.attrs["Mounts"] if row["Destination"] == target), None)
-            if not mount or mount.get("Type") != "volume" or not mount.get("Name", "").startswith("mediaseed-preview_"):
+            if not mount or mount.get("Type") != "volume" or not mount.get("Name", "").startswith(self.seed_project + "_"):
                 raise ValueError("Unverified MediaSeed storage")
+            volume = client.volumes.get(mount["Name"])
+            if volume.attrs.get("Labels", {}).get("com.docker.compose.project") != self.seed_project:
+                raise ValueError("MediaSeed volume ownership changed")
             volumes[mount["Name"]] = {"bind": target, "mode": "rw" if writable else "ro"}
         source.stop(timeout=15)
         resolver = self.data / "seedbox-resolv.conf"
