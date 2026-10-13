@@ -1,0 +1,6 @@
+.brand-mark { display: inline-block; flex-shrink: 0; color: var(--accent); vertical-align: middle; stroke-width: 2.4 !important; stroke-linecap: round !important; stroke-linejoin: round !important; }
+.brand > .brand-mark, .brand .brand-mark { filter: drop-shadow(0 0 8px color-mix(in srgb, var(--accent) 14%, transparent)); }
+:root[data-reduced-motion="true"] .brand-mark { filter: none; }
+.sidebar-heading .brand .brand-mark { width: 29px; height: 29px; }
+.shell-brand .brand .brand-mark { width: 28px; height: 28px; }
+.mobile-brand .brand .brand-mark { width: 26px; height: 26px; }
