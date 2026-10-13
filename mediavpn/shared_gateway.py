@@ -77,7 +77,10 @@ class SharedGateway:
             port = int(os.environ.get("MEDIAVPN_SHARED_PORT", "18804"))
             if (
                 ip.version != 4
-                or not ip.is_private
+                or not any(
+                    ip in ipaddress.ip_network(network)
+                    for network in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
+                )
                 or ip.is_loopback
                 or ip.is_link_local
                 or not 1024 <= port <= 65535

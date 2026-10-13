@@ -40,7 +40,10 @@ def validate(value):
         target = ipaddress.ip_address(value["endpointIp"])
         if (
             target.version != 4
-            or not target.is_private
+            or not any(
+                target in ipaddress.ip_network(network)
+                for network in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
+            )
             or target.is_loopback
             or target.is_link_local
         ):
