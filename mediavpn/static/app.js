@@ -18,6 +18,8 @@ async function api(path, body, method) {
   if (!response.ok) { const error = new Error(typeof result.detail === 'string' ? result.detail : t("The action could not be completed.")); error.status = response.status; throw error; }
   return result;
 }
+globalThis.MediaAppTheme.setOverrideHandler(themeOverride => api('auth/preferences', {themeOverride}, 'PUT'));
+window.addEventListener('mediahub-theme-error', event => notice(event.detail));
 function node(tag, text, className) { const element = document.createElement(tag); if (text !== undefined) element.textContent = text; if (className) element.className = className; return element; }
 async function action(button, handler) { if (busy) return; busy = true; button.disabled = true; try { await handler(); } catch(error) { notice(error.message); } finally { busy = false; button.disabled = false; } }
 function control(text, handler, className) { const button = node('button',text,className); button.type = 'button'; button.onclick = () => action(button,handler); return button; }
@@ -181,7 +183,7 @@ async function refresh() {
   }
 }
 async function workspace() { document.querySelector('#add').hidden = appRole !== 'administrator'; document.querySelector('#identity').hidden = true; document.querySelector('.topbar').hidden = false; document.querySelector('#workspace').hidden = false; try { await refresh(); } catch(error) { notice(error.message); } }
-document.querySelector('#login').onsubmit = async event => { event.preventDefault(); const button = document.querySelector('#login-submit'); await action(button,async()=>{const body = Object.fromEntries(new FormData(event.target)); if (needsSetup) { await api('auth/setup',body); needsSetup = false; } csrf = (await api('auth/login',body)).csrf; const identity = await api('auth/me'); setLanguage(identity.language || 'en'); event.target.reset(); await workspace();}); };
+document.querySelector('#login').onsubmit = async event => { event.preventDefault(); const button = document.querySelector('#login-submit'); await action(button,async()=>{const body = Object.fromEntries(new FormData(event.target)); if (needsSetup) { await api('auth/setup',body); needsSetup = false; } csrf = (await api('auth/login',body)).csrf; const identity = await api('auth/me'); setLanguage(identity.language || 'en'); globalThis.MediaAppTheme.applyIdentity(identity); event.target.reset(); await workspace();}); };
 document.querySelector('#logout').onclick = event => action(event.target,async()=>{await api('auth/logout',{}); location.reload();});
 document.querySelector('#add').onclick = () => dialog.showModal();
 document.querySelector('#close-dialog').onclick = () => dialog.close();
@@ -192,13 +194,13 @@ async function initializeLogin() {
     const status = await api('auth/status'); needsSetup = status.needsSetup;
     if (status.managed) {
       document.querySelector('#login').hidden = true;
-      try { const identity = await api('auth/me'); setLanguage(identity.language || 'en'); csrf = identity.csrf; appRole = identity.role; await workspace(); }
+      try { const identity = await api('auth/me'); setLanguage(identity.language || 'en'); globalThis.MediaAppTheme.applyIdentity(identity); csrf = identity.csrf; appRole = identity.role; await workspace(); }
       catch (error) { if (error.status === 401) location.replace(status.loginUrl); else notice(error.message); }
       return;
     }
     document.querySelector('#identity-title').textContent = needsSetup ? t("A fresh start.") : t("Welcome back.");
     document.querySelector('#login-submit').textContent = needsSetup ? t("Create administrator") : t("Sign in");
-    try { const identity = await api('auth/me'); setLanguage(identity.language || 'en'); csrf = identity.csrf; appRole = identity.role || 'administrator'; await workspace(); } catch {}
+    try { const identity = await api('auth/me'); setLanguage(identity.language || 'en'); globalThis.MediaAppTheme.applyIdentity(identity); csrf = identity.csrf; appRole = identity.role || 'administrator'; await workspace(); } catch {}
   } catch(error) { notice(error.message); }
 }
 void initializeLogin();
@@ -207,6 +209,12 @@ setInterval(() => { if (!document.hidden && !document.querySelector('#workspace'
 const accountLanguage = document.querySelector('#account-language');
 if (accountLanguage) { accountLanguage.onchange = () => setLanguage(accountLanguage.value); setLanguage(accountLanguage.value || 'en'); }
 
-async function refreshAccountLanguage() { try { const identity = await api('auth/me'); setLanguage(identity.language || 'en'); } catch {} }
-document.addEventListener('visibilitychange', () => { if (!document.hidden) void refreshAccountLanguage(); });
-setInterval(() => { if (!document.hidden) void refreshAccountLanguage(); }, 60000);
+let refreshingPreferences = false;
+async function refreshAccountPreferences() {
+  if (refreshingPreferences || document.hidden || document.querySelector('#workspace').hidden) return;
+  refreshingPreferences = true;
+  try { const identity = await api('auth/me'); setLanguage(identity.language || 'en'); globalThis.MediaAppTheme.applyIdentity(identity); } catch {} finally { refreshingPreferences = false; }
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden) void refreshAccountPreferences(); });
+window.addEventListener('focus', () => { void refreshAccountPreferences(); });
+setInterval(() => { void refreshAccountPreferences(); }, 60000);

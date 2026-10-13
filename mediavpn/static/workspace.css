@@ -40,3 +40,16 @@ dialog::backdrop { backdrop-filter: blur(7px); }
   .app-connections dl { grid-template-columns: minmax(0,1fr); }
   .app-connections, .profile { padding: 18px; }
 }
+
+/* Account preferences inherited only by authenticated MediaHub sessions. */
+.theme-switch .managed-theme-name { font-size: 12px; color: var(--accent); font-weight: 600; }
+:root[data-density="compact"] #workspace { padding-block: 16px 40px; }
+:root[data-density="compact"] :is(.workspace-card, .profile, .app-connections, #tracker-overview, .toolbar) { padding: 14px 16px; }
+:root[data-density="compact"] :is(input:not([type="checkbox"]):not([type="radio"]), select, button) { min-height: 32px; padding-block: 6px; }
+:root[data-density="compact"] :is(.workspace-columns, .profiles-grid) { gap: 12px; }
+:root[data-density="compact"] .torrent-row { padding-block: 8px; }
+
+:root[data-look="soft-orbit"] svg[stroke] { stroke-width: 1.7; stroke-linecap: round; }
+:root[data-look="precision-terminal"] svg[stroke] { stroke-width: 1.5; stroke-linecap: square; stroke-linejoin: miter; }
+:root[data-look="floating-layers"] svg[stroke] { stroke-width: 2.2; }
+:root[data-look="edge-signal"] svg[stroke] { stroke-width: 2.4; stroke-linecap: square; }
