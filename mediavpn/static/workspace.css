@@ -53,3 +53,29 @@ dialog::backdrop { backdrop-filter: blur(7px); }
 :root[data-look="precision-terminal"] svg[stroke] { stroke-width: 1.5; stroke-linecap: square; stroke-linejoin: miter; }
 :root[data-look="floating-layers"] svg[stroke] { stroke-width: 2.2; }
 :root[data-look="edge-signal"] svg[stroke] { stroke-width: 2.4; stroke-linecap: square; }
+
+/* Quiet app header; appearance and extension tools live in Settings. */
+.topbar .app-settings-button { display: inline-flex; align-items: center; gap: 8px; margin-left: 0; }
+.app-settings-dialog { width: min(520px, calc(100vw - 32px)); max-width: calc(100vw - 32px); max-height: calc(100dvh - 32px); padding: 24px; overflow: auto; color: var(--text); background: var(--surface); border: 1px solid var(--line); }
+.app-settings-dialog::backdrop { background: #02081099; backdrop-filter: blur(5px); }
+.app-settings-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
+.app-settings-heading h2 { margin: 0; font-size: 24px; }
+.app-settings-close { display: grid; place-items: center; width: 34px; height: 34px; padding: 0; font-size: 22px; }
+.app-settings-panel { padding: 18px; margin-top: 14px; border: 1px solid var(--line); border-radius: var(--skin-radius, 8px); background: var(--glass, var(--raised)); }
+.app-settings-panel h3 { margin: 0 0 8px; font-size: 16px; }
+.app-settings-panel p { margin: 0 0 16px; color: var(--muted); font-size: 13px; line-height: 1.6; }
+.app-settings-panel .theme-switch { display: grid; grid-template-columns: 1fr; gap: 8px; margin: 0; }
+.app-settings-panel :is(select, .theme-switch select) { width: 100%; max-width: 100%; }
+.app-settings-panel label { display: grid; gap: 8px; font-size: 13px; color: var(--muted); }
+.app-settings-panel .managed-theme-name { font-size: 12px; }
+.app-settings-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin-top: 18px; }
+.app-settings-actions a { font-size: 13px; }
+.settings-extension-download { display: inline-flex; padding: 10px 14px; border: 1px solid var(--accent-line); border-radius: var(--select-radius, 6px); text-decoration: none; }
+.settings-extension-guide { color: var(--muted); text-underline-offset: 3px; }
+.app-settings-message { color: var(--danger); font-size: 13px; margin-bottom: 0; }
+@media (max-width: 420px) {
+ .topbar .app-settings-button { width: 36px; height: 36px; padding: 8px; justify-content: center; }
+ .app-settings-button > span { display: none; }
+ .app-settings-dialog { padding: 18px; }
+ .app-settings-panel { padding: 14px; }
+}

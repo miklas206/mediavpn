@@ -34,7 +34,27 @@
   const control = document.createElement('label'); control.className = 'theme-switch';
   const caption = document.createElement('span'); caption.textContent = 'Theme';
   control.append(caption, select);
-  document.querySelector('.topbar')?.append(control);
+  const settings = document.createElement('dialog'); settings.className = 'app-settings-dialog'; settings.id = 'app-settings'; settings.setAttribute('aria-labelledby','app-settings-title');
+  settings.innerHTML = '<div class="app-settings-heading"><h2 id="app-settings-title"></h2><button type="button" class="app-settings-close"></button></div><section class="app-settings-panel"><h3 class="app-settings-appearance"></h3><p class="app-settings-help"></p></section><p class="app-settings-message" role="status" aria-live="polite" hidden></p>';
+  settings.querySelector('.app-settings-panel').append(control);
+  const button = document.createElement('button'); button.type = 'button'; button.className = 'app-settings-button'; button.setAttribute('aria-haspopup','dialog'); button.setAttribute('aria-controls','app-settings');
+  button.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 3-.6 2.2-2 .9L4.3 5.5 2.5 8.6l1.6 1.6-.2 2.2-1.4 1.7 1.8 3.1 2.1-.6 2 1 .6 2.4h3.6l.6-2.4 2-1 2.1.6 1.8-3.1-1.4-1.7-.2-2.2 1.6-1.6-1.8-3.1-2.1.6-2-.9L12.6 3Z"/><circle cx="10.8" cy="11.5" r="3"/></svg><span></span>';
+  const topbar = document.querySelector('.topbar'); topbar?.insertBefore(button,topbar.querySelector('#logout'));
+  document.body.append(settings);
+  const localMessage=settings.querySelector('.app-settings-message');
+  button.addEventListener('click',()=>{localMessage.hidden=true;settings.showModal();});
+  const close=settings.querySelector('.app-settings-close');close.textContent='\u00d7';close.addEventListener('click',()=>settings.close());
+  settings.addEventListener('click',event=>{const r=settings.getBoundingClientRect();if(event.target===settings && (event.clientX<r.left || event.clientX>r.right || event.clientY<r.top || event.clientY>r.bottom))settings.close();});
+  const extensionLink=document.querySelector('.browser-extension-link');
+  let extension=null;
+  if(extensionLink) {
+    extension=document.createElement('section');extension.className='app-settings-panel app-settings-extension';
+    extension.innerHTML='<h3></h3><p class="extension-help"></p><label><span class="extension-browser-label"></span><select class="settings-extension-browser"><option value="chromium">Chrome / Edge / Brave / Opera</option><option value="firefox">Firefox</option><option value="safari">Safari / Xcode</option></select></label><div class="app-settings-actions"><a class="primary settings-extension-download" download></a></div>';
+    extensionLink.className='settings-extension-guide';extension.querySelector('.app-settings-actions').append(extensionLink);settings.insertBefore(extension,localMessage);
+    extension.querySelector('select').value=/Firefox/i.test(navigator.userAgent)?'firefox':/Safari/i.test(navigator.userAgent)&&!/Chrome|Chromium|Edg/i.test(navigator.userAgent)?'safari':'chromium';
+    extension.querySelector('select').addEventListener('change',label);
+  }
+
   function apply(name) {
     if (managed || !valid(name)) return false;
     managedKeys.forEach(key => root.style.removeProperty(key)); managedKeys = [];
@@ -55,22 +75,38 @@
     if (!managed) { apply(select.value); return; }
     if (!overrideHandler || savingOverride) return;
     const override = select.value === 'follow-hub' ? null : select.value;
-    savingOverride = true; select.disabled = true;
+    savingOverride = true; select.disabled = true; localMessage.hidden=true;
     try {
       const result = await overrideHandler(override);
       savingOverride = false;
       applyIdentity({...hubIdentity, themeOverride: result.themeOverride});
     } catch (error) {
       savingOverride = false; applyIdentity(hubIdentity);
+      localMessage.textContent=globalThis.MediaAppI18n?.t(error.message)||error.message; localMessage.hidden=false;
       window.dispatchEvent(new CustomEvent('mediahub-theme-error', {detail: error.message}));
     } finally { savingOverride = false; select.disabled = false; }
   });
   const inheritedName = document.createElement('span'); inheritedName.className = 'managed-theme-name'; inheritedName.hidden = true; control.append(inheritedName);
   function label() {
+    const da=root.lang==='da';
+    settings.querySelector('h2').textContent=da?'Indstillinger':'Settings';
+    button.querySelector('span').textContent=da?'Indstillinger':'Settings';button.title=da?'Indstillinger':'Settings';button.setAttribute('aria-label',button.title);
+    close.setAttribute('aria-label',da?'Luk indstillinger':'Close settings');
+    settings.querySelector('.app-settings-appearance').textContent=da?'Udseende':'Appearance';
+    settings.querySelector('.app-settings-help').textContent=da?'Tema til denne app. Gemmes automatisk.':'Choose a theme for this app. Changes save automatically.';
+    if(extension) {
+      const browser=extension.querySelector('select').value;
+      extension.querySelector('h3').textContent=da?'Browserudvidelse':'Browser extension';
+      extension.querySelector('.extension-browser-label').textContent=da?'Browser':'Browser';
+      extension.querySelector('.extension-help').textContent=browser==='safari'?(da?'Safari-kilde til Xcode. Kræver en Mac og manuel pakning.':'Safari source for Xcode. Requires a Mac and manual packaging.'):(da?'Send magnetlinks og torrentfiler til MediaSeed. Installeres manuelt.':'Send magnet links and torrent files to MediaSeed. Manual installation.');
+      const download=extension.querySelector('.settings-extension-download');download.href='/static/extensions/mediaseed-'+browser+(browser==='safari'?'-source':'')+'.zip';download.textContent=browser==='safari'?(da?'Hent Safari-kilde':'Download Safari source'):(da?'Hent udvidelse':'Download extension');
+      extensionLink.textContent=da?'Installationsvejledning':'Installation guide';
+    }
+
     caption.textContent = root.lang === 'da' ? 'Tema' : 'Theme';
-    follow.textContent = root.lang === 'da' ? 'F?lg MediaHub' : 'Follow MediaHub';
+    follow.textContent = root.lang === 'da' ? 'F\u00f8lg MediaHub' : 'Follow MediaHub';
     inheritedName.textContent = root.dataset.themeSource === 'override' ? (root.lang === 'da' ? 'Kun denne app' : 'This app only') : (root.lang === 'da' ? 'Fra MediaHub' : 'From MediaHub');
-    control.title = managed ? (root.lang === 'da' ? 'F?lg MediaHub eller v?lg et tema kun til denne app.' : 'Follow MediaHub or choose a theme for this app only.') : '';
+    control.title = managed ? (root.lang === 'da' ? 'F\u00f8lg MediaHub eller v\u00e6lg et tema kun til denne app.' : 'Follow MediaHub or choose a theme for this app only.') : '';
   }
   function applyIdentity(identity) {
     if (savingOverride) return;
@@ -108,6 +144,7 @@
   systemMode.addEventListener('change', () => { if (hubIdentity) applyIdentity(hubIdentity); });
   new MutationObserver(label).observe(root, { attributes: true, attributeFilter: ['lang'] });
   apply(initial);
+  label();
   const message = document.querySelector('#message');
   if (message) {
     const dismiss = document.createElement('button'); dismiss.type = 'button'; dismiss.className = 'notification-dismiss';
