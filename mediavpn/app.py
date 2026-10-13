@@ -1,4 +1,5 @@
 import hashlib
+import ipaddress
 import logging
 import os
 import secrets
@@ -21,6 +22,7 @@ from mediavpn.configuration import parse_wireguard
 from mediavpn.proton import ProtonSelectionError, ProtonSelector, selected_configuration
 from mediavpn.runtime import Runtime
 from mediavpn.seedbox import Seedbox
+from mediavpn.shared_gateway import SharedGateway
 
 STATIC = Path(__file__).parent / "static"
 logger = logging.getLogger(__name__)
@@ -54,6 +56,13 @@ class TorrentRpc(BaseModel):
     path: str = Field(max_length=100)
     method: str = Field(pattern="^(GET|POST)$")
     payload: dict[str, str | int | float | bool] = Field(default_factory=dict, max_length=20)
+
+
+class RelayPeer(BaseModel):
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
+    id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,80}$")
+    name: str = Field(min_length=1, max_length=100)
+    publicKey: str = Field(min_length=44, max_length=44)
 
 
 def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, selector=None):
@@ -98,6 +107,7 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
         if "auto_country" not in columns:
             connection.execute("ALTER TABLE profiles ADD COLUMN auto_country TEXT")
     seedbox = Seedbox(runtime, data)
+    shared = SharedGateway(runtime, data, base)
 
     def start_profile(profile):
         with seedbox.lock:
@@ -112,6 +122,8 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
             runtime.start(profile["id"], **options)
 
     def stop_attached(identifier):
+        if shared.profile() == identifier:
+            shared.stop_helper()
         settings = seedbox.settings()
         if runtime.enabled and settings["enabled"] and settings["profileId"] == identifier:
             seedbox.stop()
@@ -128,12 +140,17 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
                         for profile in desired:
                             start_profile(profile)
                     seedbox.reconcile()
+                    shared.reconcile()
                 except Exception:
                     try:
                         seedbox.stop()
                     except Exception:
                         pass
                     seedbox.error = "VPN-supervisor kunne ikke verificere forbindelsen"
+                    try:
+                        shared.stop_helper()
+                    except Exception:
+                        pass
                 wakeup.wait(5)
         worker = threading.Thread(target=supervise, name="mediavpn-supervisor", daemon=True) if runtime.enabled else None
         if worker:
@@ -149,6 +166,7 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
                 pass
 
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
+    app.state.shared_gateway = shared
     if not os.environ.get("MEDIAVPN_HUB_URL"):
         app.add_middleware(TrustedHostMiddleware, allowed_hosts=[origin.hostname])
 
@@ -188,6 +206,10 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
         if not runtime.enabled or not key or not secrets.compare_digest(key, seedbox.token_path.read_text().strip()):
             raise HTTPException(401, "MediaSeed integration authentication required")
 
+    def shared_machine_authorized(key: str = Header(default="", alias="X-MediaHub-Key")):
+        if not runtime.enabled or not key or not secrets.compare_digest(key, shared.token_path.read_text().strip()):
+            raise HTTPException(401, "MediaHub management authentication required")
+
     def find(identifier):
         with database() as connection:
             row = connection.execute("SELECT * FROM profiles WHERE id=?", (identifier,)).fetchone()
@@ -197,12 +219,73 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
 
     @app.get("/healthz")
     def health():
-        return {"status": "healthy", "version": "0.1.0"}
+        return {"status": "healthy", "version": "0.1.1"}
 
     @app.get("/api/runtime")
     def runtime_status(session=Depends(authorized)):
         state = seedbox.status()
-        return {"enabled": runtime.enabled, "mode": "docker" if runtime.enabled else "preview", "relayEnabled": False, "mediaSeedConnected": state["ready"], "seedbox": state}
+        return {"enabled": runtime.enabled, "mode": "docker" if runtime.enabled else "preview", "relayEnabled": shared.public()["ready"], "mediaSeedConnected": state["ready"], "seedbox": state, "shared": shared.public()}
+
+    def shared_overview():
+        with database() as connection:
+            profiles = [dict(row) for row in connection.execute("SELECT id,name FROM profiles ORDER BY name")]
+        return {**shared.public(), "profiles": profiles}
+
+    @app.get("/api/shared")
+    def shared_status(session=Depends(authorized)):
+        return shared_overview()
+
+    @app.get("/api/integration/shared")
+    def shared_machine_status(session=Depends(shared_machine_authorized)):
+        return shared_overview()
+
+    def configure_shared(body):
+        with lock, seedbox.lock:
+            if body.enabled:
+                selected = find(body.profileId)
+                _, metadata = parse_wireguard((profiles / f"{body.profileId}.conf").read_text())
+                overlay = ipaddress.ip_network("10.250.87.0/24")
+                if any(ipaddress.ip_interface(address).version == 4 and ipaddress.ip_interface(address).network.overlaps(overlay) for address in metadata["addresses"]):
+                    raise HTTPException(409, "The VPN profile address overlaps the private app relay network")
+                current = seedbox.settings()
+                if current["enabled"] and current["profileId"] != body.profileId:
+                    raise HTTPException(409, "Select the same profile for MediaSeed before sharing the VPN")
+                with database() as connection:
+                    others = connection.execute("SELECT id FROM profiles WHERE id != ?", (body.profileId,)).fetchall()
+                    connection.execute("UPDATE profiles SET desired=0 WHERE id != ?", (body.profileId,))
+                for row in others:
+                    runtime.stop(row["id"])
+                stop_attached(body.profileId)
+                shared.configure(body.profileId, True)
+                with database() as connection:
+                    connection.execute("UPDATE profiles SET desired=1 WHERE id=?", (body.profileId,))
+                start_profile(selected)
+            else:
+                previous = shared.profile()
+                shared.configure(body.profileId, False)
+                if previous:
+                    stop_attached(previous)
+                    runtime.stop(previous)
+                    with database() as connection:
+                        connection.execute("UPDATE profiles SET desired=0 WHERE id=?", (previous,))
+            wakeup.set()
+        return shared_overview()
+
+    @app.put("/api/shared")
+    def shared_settings(body: SeedboxSettings, session=Depends(authorized)):
+        return configure_shared(body)
+
+    @app.put("/api/integration/shared")
+    def shared_machine_settings(body: SeedboxSettings, session=Depends(shared_machine_authorized)):
+        return configure_shared(body)
+
+    @app.post("/api/integration/shared/peers")
+    def shared_peer(body: RelayPeer, session=Depends(shared_machine_authorized)):
+        return shared.peer(body.id, body.publicKey, body.name)
+
+    @app.delete("/api/integration/shared/peers/{identifier}")
+    def shared_peer_remove(identifier: str, session=Depends(shared_machine_authorized)):
+        return shared.remove_peer(identifier)
 
     def seedbox_overview():
         state = seedbox.status()
@@ -243,6 +326,8 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
 
     def configure_seedbox(body):
         if body.enabled:
+            if shared.profile() and shared.profile() != body.profileId:
+                raise HTTPException(409, "MediaSeed must use the selected shared VPN profile")
             profile = find(body.profileId)
             if not profile["port_forwarding"]:
                 raise HTTPException(409, "Aktiver Proton port-forwarding paa profilen foerst")
@@ -390,6 +475,8 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
     def remove(identifier: str, session=Depends(authorized)):
         with lock, seedbox.lock:
             find(identifier)
+            if shared.profile() == identifier:
+                raise HTTPException(409, "Disable shared VPN before deleting its profile")
             stop_attached(identifier)
             runtime.stop(identifier, remove=True)
             with database() as connection:

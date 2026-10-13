@@ -11,6 +11,7 @@ test('server selection offers manual fallback and sends only the chosen country'
   const find = key => {if (!nodes.has(key)) nodes.set(key, create()); return nodes.get(key);};
   const writes = [];
   const context = vm.createContext({document: {querySelector: find, querySelectorAll: () => [], createElement: create, addEventListener() {}},
+    MediaAppTheme: {setOverrideHandler() {}, applyIdentity() {}}, window: {addEventListener() {}},
     setInterval() {}, setTimeout() {}, clearTimeout() {}, confirm: () => true,
     fetch: async (url, options) => {
       if (options.method === 'PUT') writes.push([url, JSON.parse(options.body)]);

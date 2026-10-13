@@ -17,6 +17,8 @@ for (const status of [401, 403, 503]) {
     };
     const redirects = [];
     const context = vm.createContext({
+      MediaAppTheme: {setOverrideHandler() {}, applyIdentity() {}},
+      window: {addEventListener() {}},
       document: { querySelector: find, querySelectorAll: () => [], createElement: element, body: element(), addEventListener() {} },
       location: { replace: url => redirects.push(url) }, setInterval() {}, setTimeout() {}, clearTimeout() {},
       fetch: async url => ({ ok: url === '/api/auth/status', status,

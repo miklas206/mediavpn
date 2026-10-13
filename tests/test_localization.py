@@ -41,7 +41,7 @@ class Labels(HTMLParser):
 def test_all_static_labels_and_translated_calls_have_catalog_entries():
     messages = catalog()
     known = set(messages) | set(messages.values())
-    neutral = {"MediaSeed", "MediaSeed 0.1.0", "MediaVPN", "MediaVPN 0.1.0", "MEDIAVPN", "MediaHub apps", "App", "Internet", "VPN", "RSS", "Torrent", "beta", "releases", "Port-forwarding", "Dansk", "Firefox", "Chrome / Edge / Brave / Opera"}
+    neutral = {"MediaSeed", "MediaSeed 0.1.0", "MediaVPN", "MediaVPN 0.1.1", "MEDIAVPN", "MediaHub apps", "App", "Internet", "VPN", "RSS", "Torrent", "beta", "releases", "Port-forwarding", "Dansk", "Firefox", "Chrome / Edge / Brave / Opera"}
     html = list(STATIC.glob("*.html"))
     if STATIC.parent.name == "mediaseed":
         html.append(STATIC.parents[1] / "browser-extension" / "popup.html")

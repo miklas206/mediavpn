@@ -22,6 +22,9 @@ class Runtime:
         self.location = location or ExitLocation()
         self.selector = ProtonSelector()
         self.image = os.environ.get("MEDIAVPN_GLUETUN_IMAGE", "qmcgaw/gluetun:v3.40.0")
+        self.shared_profile = lambda: None
+        self.shared_endpoint = lambda: None
+        self.stop_shared = lambda: None
 
     def docker(self):
         if not self.enabled or not self.host_data or not self.host_data.is_absolute() or ".." in self.host_data.parts:
@@ -34,6 +37,7 @@ class Runtime:
     def container(self, identifier):
         client = self.docker()
         rows = client.containers.list(all=True, filters={"label": [f"{OWNER}=mediavpn", f"org.mediahub.mediavpn.profile={identifier}"]})
+        rows = [row for row in rows if getattr(row, "labels", {}).get("org.mediahub.vpn.shared-gateway") != "mediavpn"]
         if len(rows) > 1:
             raise HTTPException(409, "Profilen har flere runtime-containere; kontroller installationen")
         return rows[0] if rows else None
@@ -103,6 +107,11 @@ class Runtime:
         return data
 
     def start(self, identifier, port_forwarding=False, auto_country=None):
+        shared = self.shared_profile()
+        if shared and identifier != shared:
+            raise HTTPException(409, "Only the selected shared VPN profile may connect")
+        endpoint = self.shared_endpoint() if shared else None
+        marker = str(endpoint) if endpoint else ""
         try:
             container = self.container(identifier)
             mode = auto_country or ""
@@ -111,15 +120,19 @@ class Runtime:
                 expected = "on" if port_forwarding else "off"
                 environment = container.attrs.get("Config", {}).get("Env", [])
                 compatible = container.labels.get("org.mediahub.mediavpn.auto-country", "") == mode
+                compatible = compatible and container.labels.get("org.mediahub.mediavpn.shared", "") == marker
                 running = container.attrs.get("State", {}).get("Running")
                 if compatible and (not mode or running) and f"VPN_PORT_FORWARDING={expected}" in environment and container.labels.get("org.mediahub.mediavpn.runtime") == "2":
                     if not container.attrs.get("State", {}).get("Running"):
                         container.start()
                     return
                 container.stop(timeout=10)
+                if shared:
+                    self.stop_shared()
                 container.remove()
             filename = f"{identifier}.conf"
             labels = {OWNER: "mediavpn", "org.mediahub.mediavpn.profile": identifier, "org.mediahub.mediavpn.runtime": "2"}
+            labels["org.mediahub.mediavpn.shared"] = marker
             if auto_country:
                 if not port_forwarding:
                     raise HTTPException(409, "Automatisk servervalg kræver Proton NAT-PMP")
@@ -134,15 +147,19 @@ class Runtime:
             control_config = self.data / "gluetun-control.toml"
             control_config.write_text('[[roles]]\nname = "mediavpn-status"\nroutes = ["GET /v1/vpn/status", "GET /v1/publicip/ip", "GET /v1/openvpn/portforwarded"]\nauth = "none"\n')
             control_config.chmod(0o600)
+            extra = {}
+            if endpoint:
+                extra["ports"] = {"51879/udp": (endpoint[0], endpoint[1])}
             self.docker().containers.run(
                 self.image, name=f"mediavpn-{identifier}", detach=True,
                 labels=labels,
-                environment={"VPN_SERVICE_PROVIDER": "custom", "VPN_TYPE": "wireguard", "FIREWALL": "on", "UPDATER_PERIOD": "0", "HTTP_CONTROL_SERVER_ADDRESS": "127.0.0.1:8000", "VPN_PORT_FORWARDING": "on" if port_forwarding else "off", "VPN_PORT_FORWARDING_PROVIDER": "protonvpn"},
+                environment={"VPN_SERVICE_PROVIDER": "custom", "VPN_TYPE": "wireguard", "FIREWALL": "on", "UPDATER_PERIOD": "0", "HTTP_CONTROL_SERVER_ADDRESS": "127.0.0.1:8000", "VPN_PORT_FORWARDING": "on" if port_forwarding else "off", "VPN_PORT_FORWARDING_PROVIDER": "protonvpn", "FIREWALL_INPUT_PORTS": "51879" if endpoint else ""},
                 volumes={str(self.host_data / "profiles" / filename): {"bind": "/gluetun/wireguard/wg0.conf", "mode": "ro"}, str(self.host_data / control_config.name): {"bind": "/gluetun/auth/config.toml", "mode": "ro"}},
                 cap_add=["NET_ADMIN"], devices=["/dev/net/tun:/dev/net/tun:rwm"],
-                sysctls={"net.ipv6.conf.all.disable_ipv6": "1", "net.ipv6.conf.default.disable_ipv6": "1"},
+                sysctls={"net.ipv6.conf.all.disable_ipv6": "1", "net.ipv6.conf.default.disable_ipv6": "1", **({"net.ipv4.ip_forward": "1"} if endpoint else {})},
                 security_opt=["no-new-privileges:true"], restart_policy={"Name": "no"},
                 log_config={"Type": "json-file", "Config": {"max-size": "5m", "max-file": "2"}},
+                **extra,
             )
         except HTTPException:
             raise
@@ -153,6 +170,8 @@ class Runtime:
         if not self.enabled:
             return
         try:
+            if self.shared_profile() == identifier:
+                self.stop_shared()
             container = self.container(identifier)
             if container:
                 container.stop(timeout=10)
