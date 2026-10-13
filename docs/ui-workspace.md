@@ -12,3 +12,6 @@ protection. Theme changes do not configure, connect or start a VPN or torrent.
 The revised environment uses abstract low-contrast light fields instead of scenic
 wallpaper. Themes vary control shape, hover/press response, dialog and notification
 entry. OS reduced motion disables movement.
+
+Reference revision: Soft Orbit is now dark blue and Light is a separate choice.
+The first-party hub link can pass an explicit validated Light mode.
