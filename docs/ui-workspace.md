@@ -8,3 +8,7 @@ Original scenic assets and shared surface styles live in static/themes; workspac
 contains this app's layout. No wallpaper is copied from the reference screenshots.
 The UI keeps actual backend state and existing actions, authentication and network
 protection. Theme changes do not configure, connect or start a VPN or torrent.
+
+The revised environment uses abstract low-contrast light fields instead of scenic
+wallpaper. Themes vary control shape, hover/press response, dialog and notification
+entry. OS reduced motion disables movement.
