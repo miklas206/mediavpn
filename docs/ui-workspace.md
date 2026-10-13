@@ -21,3 +21,5 @@ The shared environment stylesheet has a new cache version; no background images
 are used and reduced-motion preferences disable movement.
 
 Appearance refinement: each theme now has its own more visible abstract animated composition (glass arcs, orbit rings, terminal grid, floating planes or signal diagonals). Reduced motion remains supported; stylesheet cache version is ambient-6.
+
+Theme identity refinement: bounded Soft Orbit control rounding prevents circular text cards. Each theme has a distinct system-font stack, icon stroke treatment and surface geometry. Hub sidebar uses different icon glyphs for Home/Overview/Settings, responding to live theme previews. Settings tabs remain visible on Appearance. Shared stylesheet version: ambient-8.
