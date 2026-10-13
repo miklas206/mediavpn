@@ -153,7 +153,12 @@ async function refresh() {
   document.querySelector('#runtime-state').textContent = runtime.enabled ? t("VPN runtime enabled · status checked now") : t("Preview · tunnel startup is blocked. No traffic uses the VPN yet.");
   document.querySelector('#seedbox-state').textContent = runtime.mediaSeedConnected ? t("Connected through verified VPN") : t(runtime.seedbox?.reason) || t("Not connected");
   const target = document.querySelector('#profiles'); target.replaceChildren();
-  if (!profiles.length) target.append(node('p',t("No connections yet."),'empty'));
+  if (!profiles.length) {
+    const empty = node('div', undefined, 'empty');
+    empty.append(node('div', '◇', 'empty-orbit'), node('h2', t("No connections yet.")), node('p', t("Create your first VPN connection."), 'muted'));
+    if (appRole !== 'viewer') empty.append(control(t("New connection"), () => dialog.showModal(), 'primary'));
+    target.append(empty);
+  }
   for (const profile of profiles) {
     const item = node('article',undefined,'profile'); const details = node('div');
     details.append(node('h2',profile.name),node('span',t(statusNames[profile.state]) || t("Unknown"),'status ' + (profile.healthy ? 'connected' : '')),node('p',`WireGuard · ${profile.endpoint}:${profile.port}`),node('p',t("Public IP: {0} · VPN port: {1}", {0: profile.publicIp || t("Unverified"), 1: profile.forwardedPort || t("Unverified")})));
