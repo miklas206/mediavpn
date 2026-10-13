@@ -15,3 +15,7 @@ entry. OS reduced motion disables movement.
 
 Reference revision: Soft Orbit is now dark blue and Light is a separate choice.
 The first-party hub link can pass an explicit validated Light mode.
+
+The ambient revision adds visible abstract light fields and curved ribbons.
+The shared environment stylesheet has a new cache version; no background images
+are used and reduced-motion preferences disable movement.

@@ -6,30 +6,30 @@ body { isolation: isolate; }
   background: var(--scene), var(--bg); background-size: cover; background-position: center; background-repeat: no-repeat;
 }
 :root[data-look="midnight-glass"] {
-  --scene: radial-gradient(ellipse at 76% 0%, #229acb14, transparent 58%), radial-gradient(ellipse at 15% 85%, #2968a30b, transparent 54%);
+  --scene: radial-gradient(ellipse at 76% 0%, #229acb38, transparent 58%), radial-gradient(ellipse at 15% 85%, #596acb27, transparent 54%);
   --skin-radius: 12px; --skin-shadow: 0 14px 45px #00101e55, inset 0 1px #a2efff16;
 }
 :root[data-look="soft-orbit"] {
-  --scene: radial-gradient(ellipse at 78% 12%, #a898db1c, transparent 60%), radial-gradient(ellipse at 10% 85%, #7badd212, transparent 56%);
+  --scene: radial-gradient(ellipse at 78% 12%, #a898db38, transparent 60%), radial-gradient(ellipse at 10% 85%, #7badd22a, transparent 56%);
   --skin-radius: 18px; --skin-shadow: 0 16px 40px #50416b18, inset 0 1px #fff9;
   --glass: color-mix(in srgb, var(--surface) 88%, transparent);
 }
 :root[data-look="precision-terminal"] {
-  --scene: radial-gradient(circle at 1px 1px, #74e2af09 1px, transparent 1.2px), radial-gradient(ellipse at 90% 0%, #74e2af08, transparent 60%);
+  --scene: radial-gradient(circle at 1px 1px, #74e2af12 1px, transparent 1.2px), radial-gradient(ellipse at 90% 0%, #74e2af20, transparent 60%);
   --skin-radius: 7px; --skin-shadow: none;
 }
 :root[data-look="precision-terminal"] body::before { background-size: 22px 22px, cover; }
 :root[data-look="floating-layers"] {
-  --scene: radial-gradient(ellipse at 80% 15%, #7296ee14, transparent 55%), radial-gradient(ellipse at 20% 80%, #9e82df0a, transparent 55%);
+  --scene: radial-gradient(ellipse at 80% 15%, #7296ee38, transparent 55%), radial-gradient(ellipse at 20% 80%, #9e82df2a, transparent 55%);
   --skin-radius: 16px; --skin-shadow: 0 20px 44px #04101d65, inset 0 1px #d3e6ff18;
   --glass: color-mix(in srgb, var(--surface) 84%, transparent);
 }
 :root[data-look="edge-signal"] {
-  --scene: radial-gradient(ellipse at 90% 0%, #c98c3510, transparent 65%);
+  --scene: radial-gradient(ellipse at 90% 0%, #c98c3530, transparent 65%);
   --skin-radius: 8px; --skin-shadow: 0 14px 36px #0004;
 }
-:root[data-look="soft-orbit"][data-appearance-mode="dark"] { --scene: radial-gradient(ellipse at 70% 10%, #a898db12, transparent 65%); }
-:root[data-appearance-mode="light"]:not([data-look="soft-orbit"]):not([data-look="classic"]) body::before { opacity: .35; }
+:root[data-look="soft-orbit"][data-appearance-mode="dark"] { --scene: radial-gradient(ellipse at 70% 10%, #a898db32, transparent 65%); }
+:root[data-appearance-mode="light"]:not([data-look="soft-orbit"]):not([data-look="classic"]) body::before { opacity: .72; }
 :root[data-look]:not([data-look="classic"]) :is(.sidebar, .topbar, .workspace-card, .connection-flow, .profile, .app-connections, .hub-heading, .hub-app-card, .panel, .resource-plot, .settings-extensions-nav, dialog) {
   background: var(--glass); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
   box-shadow: var(--skin-shadow); border-color: var(--line);
@@ -67,9 +67,9 @@ body { isolation: isolate; }
 }
 @media (prefers-reduced-motion: no-preference) {
   :root[data-look]:not([data-look="classic"]) :is(.hub-app-card, .workspace-card, .profile) { transition: border-color 180ms, box-shadow 180ms, transform 180ms; }
-  :root[data-look="midnight-glass"] body::before, :root[data-look="floating-layers"] body::before { inset: -5%; animation: environment-drift 48s ease-in-out infinite alternate; }
+  :root[data-look="midnight-glass"] body::before, :root[data-look="floating-layers"] body::before { inset: -5%; animation: environment-drift 32s ease-in-out infinite alternate; }
 }
-@keyframes environment-drift { from { transform: translate3d(-5px, 0, 0) scale(1.015); } to { transform: translate3d(5px, -5px, 0) scale(1.035); } }
+@keyframes environment-drift { from { transform: translate3d(-1.5vw, -.5vh, 0) scale(1.04); } to { transform: translate3d(1.5vw, 1vh, 0) scale(1.07); } }
 :root[data-reduced-motion="true"] body::before { animation: none; }
 
 /* Interaction is part of each theme: shape, depth, motion and feedback. */
@@ -125,3 +125,18 @@ body { isolation: isolate; }
 :root[data-look="soft-orbit"] .confirmation-icon { border-radius: 50%; }
 :root[data-look="precision-terminal"] .confirmation-icon { border-radius: 3px; }
 :root[data-look="edge-signal"] .confirmation-dialog { border-top: 2px solid var(--accent); }
+
+/* Abstract light ribbons: enough depth to feel alive, without scenic wallpaper. */
+:root[data-look]:not([data-look="classic"]):not([data-look="precision-terminal"]) body::after {
+  content: ""; position: fixed; inset: -8%; pointer-events: none; z-index: -1;
+  background:
+    radial-gradient(ellipse 95% 65% at 55% 120%, transparent 60%, color-mix(in srgb, var(--accent) 10%, transparent) 60.4%, transparent 62%),
+    radial-gradient(ellipse 100% 80% at 105% -10%, transparent 57%, color-mix(in srgb, var(--accent) 7%, transparent) 57.4%, transparent 59%),
+    linear-gradient(115deg, transparent 30%, color-mix(in srgb, var(--accent) 4%, transparent) 43%, transparent 57%);
+}
+@media (prefers-reduced-motion: no-preference) {
+  :root[data-look="soft-orbit"] body::before, :root[data-look="edge-signal"] body::before { inset: -5%; animation: environment-drift 38s ease-in-out infinite alternate; }
+  :root[data-look]:not([data-look="classic"]):not([data-look="precision-terminal"]) body::after { animation: ambient-ribbons 44s ease-in-out infinite alternate; }
+}
+@keyframes ambient-ribbons { from { transform: translate3d(-1%, 0, 0) rotate(-1deg); } to { transform: translate3d(1%, -1%, 0) rotate(1deg); } }
+:root[data-reduced-motion="true"] body::after { animation: none; }
