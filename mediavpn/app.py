@@ -219,7 +219,7 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
 
     @app.get("/healthz")
     def health():
-        return {"status": "healthy", "version": "0.1.2"}
+        return {"status": "healthy", "version": "0.1.3"}
 
     @app.get("/api/runtime")
     def runtime_status(session=Depends(authorized)):
@@ -346,7 +346,7 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
         return seedbox.rpc(body.path, body.method, body.payload)
 
     @app.post("/api/integration/upload")
-    async def integration_upload(request: Request, ratio: float = Query(default=1, ge=1, le=1000, allow_inf_nan=False), savepath: str = Query(default="/downloads", pattern=r"^/downloads(?:/[A-Za-z0-9_-]+)*$", max_length=200), category: str = Query(default="", max_length=100), tags: str = Query(default="", max_length=64, pattern=r"^(?:MediaSeed-Cleanup-[a-f0-9]{24})?$"), start: bool = Query(default=False), session=Depends(machine_authorized)):
+    async def integration_upload(request: Request, ratio: float = Query(default=1, ge=1, le=1000, allow_inf_nan=False), savepath: str = Query(default="/downloads", max_length=1100), category: str = Query(default="", max_length=100), tags: str = Query(default="", max_length=64, pattern=r"^(?:MediaSeed-Cleanup-[a-f0-9]{24})?$"), start: bool = Query(default=False), session=Depends(machine_authorized)):
         content = bytearray()
         async for chunk in request.stream():
             content.extend(chunk)

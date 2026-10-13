@@ -1,4 +1,5 @@
 import base64
+import hashlib
 import json
 import io
 import os
@@ -8,7 +9,7 @@ import tarfile
 import threading
 import time
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from fastapi import HTTPException
 
@@ -32,6 +33,10 @@ try:
     password=pathlib.Path('/secrets/qbit-password').read_text().strip()
     send('auth/login',urllib.parse.urlencode({'username':'mediaseed','password':password}).encode())
     payload=body.get('payload') or {}
+    destination=payload.get('savepath',payload.get('savePath'))
+    if destination:
+        target=pathlib.Path(destination)
+        if target.resolve()!=target:raise ValueError('Download directory contains symlinks')
     if body['path']=='rss/torrent':
         class NoRedirect(urllib.request.HTTPRedirectHandler):
             def redirect_request(self,*args):return None
@@ -87,6 +92,14 @@ class Seedbox:
         self.seed_project = os.environ.get("MEDIAVPN_MEDIASEED_PROJECT", "mediaseed-preview")
         if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{1,80}", self.seed_project):
             raise ValueError("Invalid MediaSeed Compose project")
+        self.media_storage = json.loads(os.environ.get("MEDIAVPN_MEDIASEED_STORAGE", "[]"))
+        if not isinstance(self.media_storage, list) or len(self.media_storage) > 32:
+            raise ValueError("Invalid approved MediaSeed storage")
+        for row in self.media_storage:
+            path = PurePosixPath(row["source"])
+            if (not re.fullmatch(r"[A-Za-z0-9-]{1,64}", row["id"]) or row["path"] != "/downloads/media/" + row["id"]
+                    or not path.is_absolute() or len(path.parts) < 3 or ".." in path.parts):
+                raise ValueError("Invalid approved MediaSeed storage")
         self.token_path = self.data / "integrations" / "mediaseed.token"
         self.token_path.parent.mkdir(mode=0o700, exist_ok=True)
         if not self.token_path.exists():
@@ -141,7 +154,7 @@ class Seedbox:
                     return
                 vpn = self.runtime.container(settings["profileId"])
                 vpn.reload()
-                generation = vpn.id + ":" + vpn.attrs["State"]["StartedAt"]
+                generation = self.generation(vpn)
                 child = self.child()
                 if child and child.labels.get("org.mediahub.mediavpn.generation") != generation:
                     child.stop(timeout=10)
@@ -173,7 +186,7 @@ class Seedbox:
                         current = self.runtime.status(settings["profileId"])
                         current_vpn = self.runtime.container(settings["profileId"])
                         current_vpn.reload()
-                        current_generation = current_vpn.id + ":" + current_vpn.attrs["State"]["StartedAt"]
+                        current_generation = self.generation(current_vpn)
                         age = (datetime.now(timezone.utc) - datetime.fromisoformat(state["StartedAt"].replace("Z", "+00:00"))).total_seconds()
                         if current["healthy"] and current["forwardedPort"] and child.labels.get("org.mediahub.mediavpn.generation") == current_generation and state.get("Running") and 0 <= age < 30:
                             self.error = "Torrentklienten starter; status er ikke klar"
@@ -210,6 +223,13 @@ class Seedbox:
             if volume.attrs.get("Labels", {}).get("com.docker.compose.project") != self.seed_project:
                 raise ValueError("MediaSeed volume ownership changed")
             volumes[mount["Name"]] = {"bind": target, "mode": "rw" if writable else "ro"}
+        for row in self.media_storage:
+            for container in (source, app):
+                matches = [m for m in container.attrs["Mounts"] if m["Destination"] == row["path"]]
+                if (len(matches) != 1 or matches[0].get("Type") != "bind"
+                        or matches[0].get("Source") != row["source"] or not matches[0].get("RW")):
+                    raise ValueError("MediaSeed media mount ownership changed")
+            volumes[row["source"]] = {"bind": row["path"], "mode": "rw"}
         source.stop(timeout=15)
         resolver = self.data / "seedbox-resolv.conf"
         resolver.write_text("nameserver 127.0.0.1\noptions timeout:2 attempts:2\n")
@@ -234,7 +254,7 @@ class Seedbox:
                 vpn = self.runtime.container(settings["profileId"]) if settings["enabled"] else None
                 if vpn:
                     vpn.reload()
-                    generation = vpn.id + ":" + vpn.attrs["State"]["StartedAt"]
+                    generation = self.generation(vpn)
                     running = child.attrs.get("State", {}).get("Running", False) and child.labels.get("org.mediahub.mediavpn.generation") == generation
             ready = bool(settings["enabled"] and observed["healthy"] and observed["forwardedPort"] and running and not self.error)
             if ready:
@@ -245,6 +265,20 @@ class Seedbox:
                 except Exception:
                     ready = False
             return {**settings, "ready": ready, "downloadsEnabled": ready, "vpn": "verified" if ready else "unverified", "publicIp": observed["publicIp"], "forwardedPort": observed["forwardedPort"], "country": observed.get("country") if ready else None, "checkedAt": observed.get("checkedAt", time.time()), "reason": self.error or (None if ready else "Vaelg og start en VPN-profil med tildelt port")}
+
+    def generation(self, vpn):
+        suffix = ":" + hashlib.sha256(json.dumps(self.media_storage, sort_keys=True).encode()).hexdigest()[:16] if self.media_storage else ""
+        return vpn.id + ":" + vpn.attrs["State"]["StartedAt"] + suffix
+
+    def valid_download_path(self, value):
+        if not isinstance(value, str) or len(value) > 1100 or "\\" in value or any(ord(c) < 32 for c in value):
+            return False
+        parts = value.split("/")
+        if parts[:2] != ["", "downloads"] or any(p in {"", ".", ".."} for p in parts[2:]):
+            return False
+        if parts[2:3] == ["media"]:
+            return any(value == row["path"] or value.startswith(row["path"] + "/") for row in self.media_storage)
+        return True
 
     @staticmethod
     def execute(child, path, method, payload, content=None):
@@ -311,7 +345,7 @@ class Seedbox:
                 # older callers compatible while preventing global auto-delete.
                 payload = {**payload, "shareLimitAction": "Stop"}
             if path == "torrents/createCategory":
-                if not re.fullmatch(r"MediaSeed-RSS-[a-f0-9]{24}", str(payload.get("category", ""))) or not re.fullmatch(r"/downloads(?:/[A-Za-z0-9_-]+)*", str(payload.get("savePath", ""))):
+                if not re.fullmatch(r"MediaSeed-RSS-[a-f0-9]{24}", str(payload.get("category", ""))) or not self.valid_download_path(payload.get("savePath", "")):
                     raise HTTPException(422, "Invalid RSS category")
             elif not path.startswith("rss/") and path != "torrents/add":
                 identifier = str(payload.get("hashes", payload.get("hash", "")))
@@ -322,7 +356,7 @@ class Seedbox:
                     raise HTTPException(422, "Invalid cleanup marker")
                 if payload.get("stopped") not in {"true", "false"} or payload.get("paused") != payload.get("stopped"):
                     raise HTTPException(422, "Choose a consistent torrent start mode")
-                if not re.fullmatch(r"/downloads(?:/[A-Za-z0-9_-]+)*", str(payload.get("savepath", ""))):
+                if not self.valid_download_path(payload.get("savepath", "")):
                     raise HTTPException(422, "Invalid download path")
                 if content is None and not str(payload.get("urls", "")).startswith("magnet:?"):
                     raise HTTPException(422, "Expected a magnet or torrent file")

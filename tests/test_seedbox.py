@@ -8,7 +8,9 @@ from mediavpn.seedbox import Seedbox
 
 @pytest.mark.parametrize("project", ["mediahub-mediaseed", "mediaseed-preview"])
 @pytest.mark.parametrize("bad_owner", [False, True])
-def test_client_creation_resolves_owned_compose_services_and_volumes(tmp_path, monkeypatch, project, bad_owner):
+@pytest.mark.parametrize("media", ["none", "approved", "mismatch", "readonly"])
+def test_client_creation_resolves_owned_compose_services_and_volumes(tmp_path, monkeypatch, project, bad_owner, media):
+    import json
     monkeypatch.setenv("MEDIAVPN_MEDIASEED_PROJECT", project)
     events = []
     def container(service, mounts):
@@ -19,6 +21,10 @@ def test_client_creation_resolves_owned_compose_services_and_volumes(tmp_path, m
         return {"Type":"volume","Name":project+"_"+name,"Destination":target}
     source = container("qbittorrent", [mount("config","/config"),mount("downloads","/downloads")])
     app = container("app", [mount("secrets","/secrets")])
+    if media != "none":
+        monkeypatch.setenv("MEDIAVPN_MEDIASEED_STORAGE", json.dumps([{"id":"movies","label":"Movies","source":"/mnt/media/movies","path":"/downloads/media/movies"}]))
+        source.attrs["Mounts"].append({"Type":"bind","Source":"/mnt/media/movies","Destination":"/downloads/media/movies","RW":True})
+        app.attrs["Mounts"].append({"Type":"bind","Source":"/wrong" if media == "mismatch" else "/mnt/media/movies","Destination":"/downloads/media/movies","RW":media != "readonly"})
     def listing(all, filters):
         assert "com.docker.compose.project="+project in filters["label"]
         return [source if "com.docker.compose.service=qbittorrent" in filters["label"] else app]
@@ -28,7 +34,7 @@ def test_client_creation_resolves_owned_compose_services_and_volumes(tmp_path, m
         create=lambda *args,**kwargs:created.append(kwargs)),
         volumes=SimpleNamespace(get=lambda name:SimpleNamespace(attrs={"Labels":{"com.docker.compose.project":"unowned" if bad_owner else project}})))
     controller = Seedbox(SimpleNamespace(docker=lambda:client,host_data=tmp_path),tmp_path)
-    if bad_owner:
+    if bad_owner or media in {"mismatch", "readonly"}:
         with pytest.raises(ValueError,match="ownership changed"):
             controller.create(SimpleNamespace(id="vpn-owned"),"vpn-generation",35458)
         assert not events and not created
@@ -38,6 +44,19 @@ def test_client_creation_resolves_owned_compose_services_and_volumes(tmp_path, m
         assert created[0]["network_mode"] == "container:vpn-owned"
         assert created[0]["volumes"][project+"_downloads"]["bind"] == "/downloads"
         assert created[0]["volumes"][project+"_secrets"]["mode"] == "ro"
+        if media == "approved":
+            assert created[0]["volumes"]["/mnt/media/movies"] == {"bind":"/downloads/media/movies", "mode":"rw"}
+
+
+def test_unicode_download_paths_stay_inside_approved_mounts(tmp_path, monkeypatch):
+    import json
+    monkeypatch.setenv("MEDIAVPN_MEDIASEED_STORAGE", json.dumps([{"id":"movies","source":"/mnt/media/movies","path":"/downloads/media/movies"}]))
+    controller = Seedbox(SimpleNamespace(enabled=False), tmp_path)
+    assert controller.valid_download_path("/downloads/media/movies/Danske film æ")
+    for path in ["/downloads/../etc", "/downloads/media/unapproved", "/downloads//folder", "/downloads/media/movies/../tv", "/downloads/x\nsecret", "/downloads/a\\b"]:
+        assert not controller.valid_download_path(path)
+    vpn = SimpleNamespace(id="vpn", attrs={"State":{"StartedAt":"now"}})
+    assert controller.generation(vpn).startswith("vpn:now:")
 
 
 def test_missing_vpn_port_stops_client_and_never_creates(tmp_path):
