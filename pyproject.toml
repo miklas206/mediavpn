@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mediavpn"
-version = "0.2.5"
+version = "0.2.6"
 requires-python = ">=3.12"
 dependencies = ["fastapi>=0.115,<1", "uvicorn>=0.34,<1", "argon2-cffi>=23.1,<26", "docker>=7.1,<8", "httpx>=0.28,<1", "cryptography>=44,<50"]
 

@@ -292,7 +292,15 @@ async function initializeLogin() {
   } catch(error) { notice(error.message); }
 }
 void initializeLogin();
-setInterval(() => { if (!document.hidden && !document.querySelector('#workspace').hidden && !busy) refresh().catch(() => {}); }, 15000);
+let refreshingStatus = false;
+async function refreshStatus() {
+  if (refreshingStatus || document.hidden || document.querySelector('#workspace').hidden || busy) return;
+  refreshingStatus = true;
+  try { await refresh(); } catch {} finally { refreshingStatus = false; }
+}
+setInterval(() => { void refreshStatus(); }, 5000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) void refreshStatus(); });
+window.addEventListener('focus', () => { void refreshStatus(); });
 
 const accountLanguage = document.querySelector('#account-language');
 if (accountLanguage) { accountLanguage.onchange = () => setLanguage(accountLanguage.value); setLanguage(accountLanguage.value || 'en'); }

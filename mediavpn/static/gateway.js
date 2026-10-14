@@ -35,12 +35,20 @@ globalThis.MediaVPNGateway = (() => {
     select.value = value || ''; select.onchange = () => { change(select.value); render(); };
     return select;
   }
+  const expanded = new Map();
+  function disclosure(key, title) {
+    const details = element('details'); details.dataset.disclosure = key;
+    details.open = expanded.get(key) === true;
+    details.addEventListener('toggle', () => { if (details.isConnected) expanded.set(key, details.open); });
+    details.append(element('summary', t(title)));
+    return details;
+  }
   function summary(panel) {
     const report = element('div', undefined, 'gateway-status'); report.setAttribute('role', 'status');
     report.append(element('strong', t(data?.gateway?.providerReady ? 'Proton connection verified' : 'Proton connection not verified')));
     if (data?.gateway?.message) report.append(element('p', t(data.gateway.message), 'muted'));
     if (data?.gateway?.publicIp) report.append(element('p', data.gateway.publicIp));
-    const details = element('details'); details.append(element('summary', t('Show checks and technical details')));
+    const details = disclosure('technical', 'Show checks and technical details');
     const seen = new Set();
     for (const check of [...(data?.checks || []), ...(data?.issues || [])]) {
       if (!check.message || seen.has(check.message)) continue;
@@ -78,10 +86,10 @@ globalThis.MediaVPNGateway = (() => {
   }
   function outgoing(panel) {
     if (!shared) return;
-    const details = element('details'); details.append(element('summary', t('Apps using this VPN for internet access')));
+    const details = disclosure('apps', 'Apps using this VPN for internet access');
     details.append(element('p', t('Web domains and outbound app traffic share the selected Proton connection. Apps selected here remain blocked if that connection fails.'), 'muted'));
     for (const app of shared.apps || []) {
-      const toggle = element('input'); toggle.type = 'checkbox'; toggle.checked = app.enabled === true;
+      const toggle = element('input'); toggle.type = 'checkbox'; toggle.dataset.app = app.id; toggle.checked = app.enabled === true;
       toggle.disabled = saving || app.enabled === null || (!app.enabled && !shared.gateway?.ready);
       toggle.onchange = async () => {
         if (saving) return;
@@ -112,7 +120,19 @@ globalThis.MediaVPNGateway = (() => {
     if (state.publicIp && state.publicPort) card.append(element('strong', state.publicIp + ':' + state.publicPort));
     panel.append(card);
   }
-  function render() {
+  function liveStatus(panel) {
+    const status = element('div'); status.id = 'gateway-live';
+    summary(status); outgoing(status); plexPort(status); panel.append(status);
+  }
+  function render(live = false) {
+    document.querySelectorAll('#web-gateway details[data-disclosure]').forEach(item => expanded.set(item.dataset.disclosure, item.open));
+    const active = document.activeElement;
+    const focusedApp = active?.dataset?.app;
+    if (live && active?.closest?.('#web-gateway') && (active.tagName === 'SELECT' || (active.tagName === 'INPUT' && active.type !== 'checkbox'))) {
+      const status = document.querySelector('#gateway-live');
+      if (status) { const holder = element('div'); liveStatus(holder); status.replaceWith(holder.firstChild); }
+      return;
+    }
     let panel = document.querySelector('#web-gateway');
     if (!panel) {
       panel = element('section', undefined, 'secondary gateway-wizard'); panel.id = 'web-gateway';
@@ -195,13 +215,13 @@ globalThis.MediaVPNGateway = (() => {
       data = await api('hub-web-gateway/config', {enabled: false, profileId: data.profileId, routes: []}, 'PUT');
       draft.routes = []; notice(t('Public domains disabled. Check gateway status for cleanup progress.'), 'success');
     }));
-    if (tab !== 'cloudflare') { panel.append(actions); summary(panel); outgoing(panel); plexPort(panel); }
+    if (tab !== 'cloudflare') { panel.append(actions); liveStatus(panel); }
+    if (focusedApp) [...panel.querySelectorAll('input[data-app]')].find(item => item.dataset.app === focusedApp)?.focus({preventScroll: true});
   }
   async function refresh(currentProfiles, force = false) {
     if (appRole !== 'administrator' || refreshing) return;
     profiles = currentProfiles || profiles;
-    const focused = document.activeElement?.closest?.('#web-gateway');
-    if ((saving && !force) || (focused && ['INPUT', 'SELECT'].includes(document.activeElement.tagName) && !force)) return;
+    if (saving && !force) return;
     refreshing = true;
     try {
       const response = await Promise.all([api('hub-web-gateway'), api('hub-apps').catch(() => null)]);
@@ -213,7 +233,7 @@ globalThis.MediaVPNGateway = (() => {
       }
       if (!draft.profileId && profiles.length === 1) draft.profileId = profiles[0].id;
       document.querySelector('#shared-apps')?.remove();
-      render();
+      render(!force);
     } catch (error) {
       notice(error.message);
       if (!data) render();
