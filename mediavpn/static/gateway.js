@@ -106,6 +106,7 @@ globalThis.MediaVPNGateway = (() => {
   }
   function plexPort(panel) {
     const state = data?.plexPort || {available: false, enabled: false, ready: false};
+    if (!state.available) return;
     const card = element('section', undefined, 'plex-port-card'); card.append(element('h3', t('Plex remote access')));
     const toggle = element('input'); toggle.type = 'checkbox'; toggle.checked = state.enabled;
     toggle.disabled = saving || (!state.enabled && (!state.available || !data?.enabled));
@@ -117,7 +118,6 @@ globalThis.MediaVPNGateway = (() => {
     };
     const label = element('label'); label.append(toggle, element('span', t('Use a separate Proton port for Plex'))); card.append(label);
     card.append(element('p', t(state.message || (state.ready ? 'Plex remote access verified through Proton' : state.enabled ? 'Waiting for a separate verified Plex TCP port' : 'Connect Plex to the shared VPN before enabling its separate port')), 'muted'));
-    if (!state.available) card.append(element('p', t('Install Plex through MediaHub before enabling its separate port'), 'muted'));
     if (state.publicIp && state.publicPort) card.append(element('strong', state.publicIp + ':' + state.publicPort));
     panel.append(card);
   }
@@ -239,6 +239,13 @@ globalThis.MediaVPNGateway = (() => {
       if (!initialized) {
         draft = {profileId: data.profileId || shared?.gateway?.profileId || (profiles.length === 1 ? profiles[0].id : ''), accountId: data.accountId || '', token: '', routes: data.routes.map(route => ({id: route.id, packageId: route.packageId, zoneId: route.zoneId, label: route.label}))};
         step = data.enabled ? 3 : 0; initialized = true;
+      }
+      if (data.enabled && !editingSetup) {
+        draft.routes = data.routes.map(route => ({id: route.id, packageId: route.packageId, zoneId: route.zoneId, label: route.label}));
+        draft.profileId = data.profileId || draft.profileId;
+      } else if (editingSetup) {
+        const installed = new Set(data.apps.map(app => app.packageId));
+        draft.routes = draft.routes.filter(route => !route.packageId || installed.has(route.packageId));
       }
       if (!draft.profileId && profiles.length === 1) draft.profileId = profiles[0].id;
       document.querySelector('#shared-apps')?.remove();
