@@ -155,10 +155,10 @@ document.querySelector('#server-form').onsubmit = async event => {
   });
 };
 function selectVPNTab(value, focus = false) {
-  if (!['connection', 'apps', 'cloudflare', 'appearance'].includes(value)) return;
+  if (!['connection', 'apps', 'cloudflare'].includes(value)) return;
   vpnTab = value;
   for (const button of document.querySelectorAll('[data-vpn-tab]')) {
-    button.textContent = t(button.dataset.vpnTab === 'connection' ? 'Connection' : button.dataset.vpnTab === 'apps' ? 'Apps and domains' : button.dataset.vpnTab === 'cloudflare' ? 'Cloudflare' : 'Appearance');
+    button.textContent = t(button.dataset.vpnTab === 'connection' ? 'Connection' : button.dataset.vpnTab === 'apps' ? 'Apps and domains' : 'Cloudflare');
     const selected = button.dataset.vpnTab === value;
     button.setAttribute('aria-selected', String(selected)); button.tabIndex = selected ? 0 : -1;
     document.querySelector('#panel-' + button.dataset.vpnTab).hidden = !selected;
@@ -168,10 +168,10 @@ function selectVPNTab(value, focus = false) {
   globalThis.MediaVPNGateway?.setTab(value);
 }
 for (const button of document.querySelectorAll('[data-vpn-tab]')) {
-  button.textContent = t(button.dataset.vpnTab === 'connection' ? 'Connection' : button.dataset.vpnTab === 'apps' ? 'Apps and domains' : button.dataset.vpnTab === 'cloudflare' ? 'Cloudflare' : 'Appearance');
+  button.textContent = t(button.dataset.vpnTab === 'connection' ? 'Connection' : button.dataset.vpnTab === 'apps' ? 'Apps and domains' : 'Cloudflare');
   button.onclick = () => selectVPNTab(button.dataset.vpnTab);
   button.onkeydown = event => {
-    const tabs = ['connection', 'apps', 'cloudflare', 'appearance']; const index = tabs.indexOf(button.dataset.vpnTab);
+    const tabs = ['connection', 'apps', 'cloudflare']; const index = tabs.indexOf(button.dataset.vpnTab);
     if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
       event.preventDefault(); selectVPNTab(event.key === 'Home' ? tabs[0] : event.key === 'End' ? tabs[tabs.length - 1] : tabs[(index + (event.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length], true);
     }

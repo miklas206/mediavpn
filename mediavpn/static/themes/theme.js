@@ -34,18 +34,16 @@
   const control = document.createElement('label'); control.className = 'theme-switch';
   const caption = document.createElement('span'); caption.textContent = 'Theme';
   control.append(caption, select);
-  const appearanceHost = document.querySelector('#panel-appearance');
-  const settings = document.createElement(appearanceHost ? 'section' : 'dialog'); settings.className = appearanceHost ? 'app-settings-dialog app-settings-inline' : 'app-settings-dialog'; settings.id = 'app-settings'; settings.setAttribute('aria-labelledby','app-settings-title');
+  const settings = document.createElement('dialog'); settings.className = 'app-settings-dialog'; settings.id = 'app-settings'; settings.setAttribute('aria-labelledby','app-settings-title');
   settings.innerHTML = '<div class="app-settings-heading"><h2 id="app-settings-title"></h2><button type="button" class="app-settings-close"></button></div><section class="app-settings-panel"><h3 class="app-settings-appearance"></h3><p class="app-settings-help"></p></section><p class="app-settings-message" role="status" aria-live="polite" hidden></p>';
   settings.querySelector('.app-settings-panel').append(control);
   const button = document.createElement('button'); button.type = 'button'; button.className = 'app-settings-button'; button.setAttribute('aria-haspopup','dialog'); button.setAttribute('aria-controls','app-settings');
   button.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 3-.6 2.2-2 .9L4.3 5.5 2.5 8.6l1.6 1.6-.2 2.2-1.4 1.7 1.8 3.1 2.1-.6 2 1 .6 2.4h3.6l.6-2.4 2-1 2.1.6 1.8-3.1-1.4-1.7-.2-2.2 1.6-1.6-1.8-3.1-2.1.6-2-.9L12.6 3Z"/><circle cx="10.8" cy="11.5" r="3"/></svg><span></span>';
-  const topbar = document.querySelector('.topbar');
-  if (appearanceHost) appearanceHost.append(settings);
-  else { topbar?.insertBefore(button,topbar.querySelector('#logout')); document.body.append(settings); }
+  const topbar = document.querySelector('.topbar'); topbar?.insertBefore(button,topbar.querySelector('#logout'));
+  document.body.append(settings);
   const localMessage=settings.querySelector('.app-settings-message');
   button.addEventListener('click',()=>{localMessage.hidden=true;settings.showModal();});
-  const close=settings.querySelector('.app-settings-close');close.hidden=!!appearanceHost;close.textContent='\u00d7';close.addEventListener('click',()=>settings.close());
+  const close=settings.querySelector('.app-settings-close');close.textContent='\u00d7';close.addEventListener('click',()=>settings.close());
   settings.addEventListener('click',event=>{const r=settings.getBoundingClientRect();if(event.target===settings && (event.clientX<r.left || event.clientX>r.right || event.clientY<r.top || event.clientY>r.bottom))settings.close();});
   const extensionLink=document.querySelector('.browser-extension-link');
   let extension=null;
@@ -91,7 +89,7 @@
   const inheritedName = document.createElement('span'); inheritedName.className = 'managed-theme-name'; inheritedName.hidden = true; control.append(inheritedName);
   function label() {
     const da=root.lang==='da';
-    settings.querySelector('h2').textContent=appearanceHost?(da?'Udseende':'Appearance'):(da?'Indstillinger':'Settings');
+    settings.querySelector('h2').textContent=da?'Indstillinger':'Settings';
     button.querySelector('span').textContent=da?'Indstillinger':'Settings';button.title=da?'Indstillinger':'Settings';button.setAttribute('aria-label',button.title);
     close.setAttribute('aria-label',da?'Luk indstillinger':'Close settings');
     settings.querySelector('.app-settings-appearance').textContent=da?'Udseende':'Appearance';
