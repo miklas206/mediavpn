@@ -199,3 +199,38 @@ def test_add_mode_is_validated_and_both_modes_use_fresh_vpn_gate(tmp_path, pause
     with pytest.raises(HTTPException) as caught:
         controller.rpc("torrents/add", "POST", {**payload, "paused": "maybe"})
     assert caught.value.status_code == 422
+
+
+@pytest.mark.parametrize("url", [
+    "https://nordicbytes.org/torrent/download/synthetic",
+    "https://nordicbytes.org/torrents/download/12/synthetic",
+])
+def test_rss_download_formats_keep_fresh_vpn_gate(tmp_path, url):
+    controller = Seedbox(SimpleNamespace(enabled=False), tmp_path)
+    controller.reconcile = lambda: None
+    controller.status = lambda: {"ready": False}
+    calls = []
+    controller.child = lambda: "synthetic"
+    controller.execute = lambda *args: calls.append(args)
+    with pytest.raises(HTTPException) as error:
+        controller.rpc("rss/torrent", "GET", {"url": url})
+    assert error.value.status_code == 409 and not calls
+    controller.status = lambda: {"ready": True}
+    controller.rpc("rss/torrent", "GET", {"url": url})
+    assert calls[0][1:4] == ("rss/torrent", "GET", {"url": url})
+
+
+@pytest.mark.parametrize("url", [
+    "http://nordicbytes.org/torrent/download/synthetic",
+    "https://nordicbytes.org.evil.invalid/torrent/download/synthetic",
+    "https://user@nordicbytes.org/torrent/download/synthetic",
+    "https://nordicbytes.org/torrent/download/",
+    "https://nordicbytes.org/torrent/details/synthetic",
+    "https://nordicbytes.org/torrent/download/synthetic#fragment",
+])
+def test_rss_download_rejects_unapproved_addresses_before_vpn(tmp_path, url):
+    controller = Seedbox(SimpleNamespace(enabled=False), tmp_path)
+    controller.reconcile = lambda: pytest.fail("Invalid address reached runtime")
+    with pytest.raises(HTTPException) as error:
+        controller.rpc("rss/torrent", "GET", {"url": url})
+    assert error.value.status_code == 422

@@ -350,7 +350,7 @@ class Seedbox:
                 address = urlsplit(str(payload["url"]))
                 if address.scheme != "https" or address.netloc != "nordicbytes.org" or address.fragment:
                     raise HTTPException(422, "Only NordicBytes HTTPS RSS sources are enabled")
-                if path == "rss/torrent" and not address.path.startswith("/torrents/download/"):
+                if path == "rss/torrent" and not re.match(r"^/torrents?/download/[^/]+", address.path):
                     raise HTTPException(422, "Invalid RSS torrent address")
             item_path = payload.get("path", payload.get("itemPath"))
             if item_path is not None and not re.fullmatch(r"MediaSeed-RSS-[a-f0-9]{24}", str(item_path)):
