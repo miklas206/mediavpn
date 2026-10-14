@@ -213,7 +213,6 @@ globalThis.MediaVPNGateway = (() => {
       }
       if (!draft.profileId && profiles.length === 1) draft.profileId = profiles[0].id;
       document.querySelector('#shared-apps')?.remove();
-      const legacy = document.querySelector('#seedbox-state')?.closest('section'); if (legacy) legacy.hidden = true;
       render();
     } catch (error) {
       notice(error.message);

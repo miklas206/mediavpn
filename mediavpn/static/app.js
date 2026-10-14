@@ -186,7 +186,6 @@ async function refresh() {
 async function refreshProfiles() {
   const [runtime, profiles] = await Promise.all([api('runtime'),api('profiles')]);
   document.querySelector('#runtime-state').textContent = runtime.enabled ? t("VPN runtime enabled · status checked now") : t("Preview · tunnel startup is blocked. No traffic uses the VPN yet.");
-  document.querySelector('#seedbox-state').textContent = runtime.mediaSeedConnected ? t("Connected through verified VPN") : t(runtime.seedbox?.reason) || t("Not connected");
   if (!gatewayRefresh) {
     gatewayRefresh = refreshSharedApps(profiles).catch(error => notice(error.message)).finally(() => { gatewayRefresh = null; });
   }
@@ -233,17 +232,13 @@ async function refreshSharedApps(profiles) {
   if (!target) {
     target = node('section', undefined, 'secondary app-connections');
     target.id = 'shared-apps';
-    document.querySelector('#workspace').append(target);
+    document.querySelector('#panel-apps').replaceChildren(target);
   }
   target.replaceChildren(node('h2', t('Shared VPN gateway')));
   if (appRole !== 'administrator') { target.hidden = true; return; }
   target.hidden = false;
   try {
     const data = await api('hub-apps');
-    // The managed list is authoritative; the legacy fixed MediaSeed summary
-    // must not advertise an app that is not installed.
-    const legacy = document.querySelector('#seedbox-state').closest('section');
-    if (legacy) legacy.hidden = true;
     target.append(node('p', t('One Proton connection shared by selected installed apps. Internet access is blocked if the VPN fails.')));
     const select = node('select'); select.setAttribute('aria-label', t('VPN profile'));
     for (const profile of data.gateway.profiles) {
