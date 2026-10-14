@@ -155,10 +155,10 @@ document.querySelector('#server-form').onsubmit = async event => {
   });
 };
 function selectVPNTab(value, focus = false) {
-  if (!['connection', 'apps', 'settings'].includes(value)) return;
+  if (!['connection', 'apps', 'cloudflare', 'appearance'].includes(value)) return;
   vpnTab = value;
   for (const button of document.querySelectorAll('[data-vpn-tab]')) {
-    button.textContent = t(button.dataset.vpnTab === 'connection' ? 'Connection' : button.dataset.vpnTab === 'apps' ? 'Apps and domains' : 'Settings');
+    button.textContent = t(button.dataset.vpnTab === 'connection' ? 'Connection' : button.dataset.vpnTab === 'apps' ? 'Apps and domains' : button.dataset.vpnTab === 'cloudflare' ? 'Cloudflare' : 'Appearance');
     const selected = button.dataset.vpnTab === value;
     button.setAttribute('aria-selected', String(selected)); button.tabIndex = selected ? 0 : -1;
     document.querySelector('#panel-' + button.dataset.vpnTab).hidden = !selected;
@@ -168,16 +168,15 @@ function selectVPNTab(value, focus = false) {
   globalThis.MediaVPNGateway?.setTab(value);
 }
 for (const button of document.querySelectorAll('[data-vpn-tab]')) {
-  button.textContent = t(button.dataset.vpnTab === 'connection' ? 'Connection' : button.dataset.vpnTab === 'apps' ? 'Apps and domains' : 'Settings');
+  button.textContent = t(button.dataset.vpnTab === 'connection' ? 'Connection' : button.dataset.vpnTab === 'apps' ? 'Apps and domains' : button.dataset.vpnTab === 'cloudflare' ? 'Cloudflare' : 'Appearance');
   button.onclick = () => selectVPNTab(button.dataset.vpnTab);
   button.onkeydown = event => {
-    const tabs = ['connection', 'apps', 'settings']; const index = tabs.indexOf(button.dataset.vpnTab);
+    const tabs = ['connection', 'apps', 'cloudflare', 'appearance']; const index = tabs.indexOf(button.dataset.vpnTab);
     if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
-      event.preventDefault(); selectVPNTab(event.key === 'Home' ? tabs[0] : event.key === 'End' ? tabs[2] : tabs[(index + (event.key === 'ArrowRight' ? 1 : 2)) % 3], true);
+      event.preventDefault(); selectVPNTab(event.key === 'Home' ? tabs[0] : event.key === 'End' ? tabs[tabs.length - 1] : tabs[(index + (event.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length], true);
     }
   };
 }
-document.querySelector('#vpn-appearance').onclick = () => document.querySelector('.app-settings-button')?.click();
 async function refresh() {
   if (refreshing) return refreshing;
   refreshing = refreshProfiles().finally(() => { refreshing = null; });

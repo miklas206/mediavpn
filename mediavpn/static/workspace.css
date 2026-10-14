@@ -81,11 +81,11 @@ dialog::backdrop { backdrop-filter: blur(7px); }
 }
 
 /* Compact VPN workspace; shared status stays outside the three panels. */
-.vpn-tabs { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:6px; padding:6px; margin:0 0 20px; border:1px solid var(--line); border-radius:12px; background:var(--surface); }
+.vpn-tabs { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; padding:6px; margin:0 0 20px; border:1px solid var(--line); border-radius:12px; background:var(--surface); }
 .vpn-tabs button { border-color:transparent; background:transparent; min-width:0; padding:10px 8px; }
 .vpn-tabs button[aria-selected="true"] { color:var(--accent); background:var(--accent-bg); border-color:var(--accent-line,var(--line)); }
 [role="tabpanel"] { min-width:0; }
-#panel-apps .gateway-wizard, #panel-settings .gateway-wizard { margin-top:0; }
+#panel-apps .gateway-wizard, #panel-cloudflare .gateway-wizard { margin-top:0; }
 #profiles { grid-template-columns:1fr; gap:12px; }
 .profile { padding:18px 20px; gap:14px; }
 .profile h2 { font-size:18px; margin:0 0 6px; }
@@ -102,4 +102,8 @@ dialog::backdrop { backdrop-filter: blur(7px); }
 .plex-port-card label { display:flex; gap:10px; align-items:center; }
 .plex-port-card p { font-size:13px; }
 #runtime-state { padding:8px 12px; margin-bottom:14px; flex-wrap:wrap; }
-@media(max-width:540px) { .vpn-tabs { gap:2px; padding:4px; } .vpn-tabs button { font-size:12px; padding:8px 4px; } .profile { padding:16px; } .compact-route { align-items:flex-start; flex-direction:column; gap:4px; } .compact-route > span { text-align:left; } }
+@media(max-width:540px) { .vpn-tabs { grid-template-columns:repeat(2,minmax(0,1fr)); gap:2px; padding:4px; } .vpn-tabs button { font-size:12px; padding:8px 4px; } .profile { padding:16px; } .compact-route { align-items:flex-start; flex-direction:column; gap:4px; } .compact-route > span { text-align:left; } }
+
+.app-settings-inline { width:100%; max-width:none; max-height:none; padding:0; border:0; background:transparent; overflow:visible; }
+.app-settings-inline .app-settings-appearance { display:none; }
+.app-settings-inline .app-settings-panel { max-width:640px; margin-top:0; }

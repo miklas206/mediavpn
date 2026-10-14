@@ -118,21 +118,21 @@ globalThis.MediaVPNGateway = (() => {
       panel = element('section', undefined, 'secondary gateway-wizard'); panel.id = 'web-gateway';
       document.querySelector('#panel-apps').append(panel);
     }
-    document.querySelector(tab === 'settings' ? '#panel-settings' : '#panel-apps').append(panel);
-    document.querySelector('.gateway-loading')?.remove();
-    panel.replaceChildren(element('h2', t(tab === 'settings' ? 'Cloudflare access' : 'Apps and domains')));
+    document.querySelector(tab === 'cloudflare' ? '#panel-cloudflare' : '#panel-apps').append(panel);
+    document.querySelectorAll('.gateway-loading').forEach(item => item.remove());
+    panel.replaceChildren(element('h2', t(tab === 'cloudflare' ? 'Cloudflare access' : 'Apps and domains')));
     panel.append(element('p', t('One guided setup for Proton, Cloudflare and your installed apps.'), 'muted'));
     if (!data) { panel.append(element('p', t('Open MediaVPN through MediaHub to configure app domains.'))); return; }
     const titles = ['Requirements', 'Proton profile', 'Cloudflare access', 'Apps and domains'];
     const nav = element('nav', undefined, 'gateway-steps'); nav.setAttribute('aria-label', t('Gateway setup'));
     const showGuide = !data.enabled || editingSetup;
-    const displayStep = tab === 'settings' ? 2 : step;
+    const displayStep = tab === 'cloudflare' ? 2 : step;
     titles.forEach((title, index) => {
       const link = button((index + 1) + '. ' + t(title), async () => { step = index; });
       link.setAttribute('aria-current', index === step ? 'step' : 'false'); nav.append(link);
     });
-    if (tab !== 'settings' && showGuide) panel.append(nav, element('h3', t(titles[step])));
-    if (tab !== 'settings' && !showGuide) {
+    if (tab !== 'cloudflare' && showGuide) panel.append(nav, element('h3', t(titles[step])));
+    if (tab !== 'cloudflare' && !showGuide) {
       for (const route of data.routes || []) { const row = element('article', undefined, 'compact-route'); row.append(element('strong', route.hostname), element('span', t(route.httpsVerified ? 'HTTPS verified' : ['blocked','conflict'].includes(route.status) ? 'Needs attention' : 'Checking...'), 'muted')); panel.append(row); }
       panel.append(button('Edit gateway setup', async () => { editingSetup = true; step = 3; }));
     } else if (displayStep === 0) {
@@ -188,14 +188,14 @@ globalThis.MediaVPNGateway = (() => {
       if (!selected?.port_forwarding) panel.append(element('p', t('Complete the Proton profile step with NAT-PMP enabled before activation.'), 'muted'));
     }
     const actions = element('div', undefined, 'actions');
-    if (tab !== 'settings' && showGuide && step) actions.append(button('Back', async () => { step--; }));
-    if (tab !== 'settings' && showGuide && step < 3) actions.append(button('Next', async () => { step++; }, true));
+    if (tab !== 'cloudflare' && showGuide && step) actions.append(button('Back', async () => { step--; }));
+    if (tab !== 'cloudflare' && showGuide && step < 3) actions.append(button('Next', async () => { step++; }, true));
     actions.append(button('Refresh gateway status', async () => { await api('hub-web-gateway/reconcile', {}); await refresh(profiles, true); }));
     if (data.enabled) actions.append(button('Disable public domains', async () => {
       data = await api('hub-web-gateway/config', {enabled: false, profileId: data.profileId, routes: []}, 'PUT');
       draft.routes = []; notice(t('Public domains disabled. Check gateway status for cleanup progress.'), 'success');
     }));
-    if (tab !== 'settings') { panel.append(actions); summary(panel); outgoing(panel); plexPort(panel); }
+    if (tab !== 'cloudflare') { panel.append(actions); summary(panel); outgoing(panel); plexPort(panel); }
   }
   async function refresh(currentProfiles, force = false) {
     if (appRole !== 'administrator' || refreshing) return;
