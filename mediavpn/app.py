@@ -278,7 +278,7 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
 
     @app.get("/healthz")
     def health():
-        return {"status": "healthy", "version": "0.2.1"}
+        return {"status": "healthy", "version": "0.2.2"}
 
     @app.get("/api/runtime")
     def runtime_status(session=Depends(authorized)):
@@ -320,6 +320,10 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
     @app.put("/api/hub-web-gateway/config")
     async def hub_web_config(body: HubGatewayConfig, session=Depends(authorized)):
         return await app.state.hub_login.web_gateway(session["digest"], "config", "PUT", body.model_dump())
+
+    @app.put("/api/hub-web-gateway/plex-port")
+    async def hub_plex_port(body: Forwarding, session=Depends(authorized)):
+        return await app.state.hub_login.web_gateway(session["digest"], "plex-port", "PUT", body.model_dump())
 
     @app.post("/api/hub-web-gateway/reconcile")
     async def hub_web_reconcile(session=Depends(authorized)):

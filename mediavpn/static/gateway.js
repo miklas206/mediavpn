@@ -1,7 +1,7 @@
 // Guided app domains; all host addresses and privileged Cloudflare calls stay server-side.
 globalThis.MediaVPNGateway = (() => {
   const t = (...args) => globalThis.MediaAppI18n.t(...args);
-  let data, shared, profiles = [], step = 0, initialized = false, saving = false, editingCredentials = false;
+  let data, shared, profiles = [], step = 0, initialized = false, saving = false, editingCredentials = false, tab = "connection", editingSetup = false, refreshing = false;
   let draft = {profileId: '', accountId: '', token: '', routes: []};
   const canActivate = () => !saving && !data?.busy && data?.configured && profiles.some(profile => profile.id === draft.profileId && profile.port_forwarding)
     && draft.routes.length > 0 && draft.routes.every(route => route.packageId && route.zoneId && route.label.trim())
@@ -40,12 +40,18 @@ globalThis.MediaVPNGateway = (() => {
     report.append(element('strong', t(data?.gateway?.providerReady ? 'Proton connection verified' : 'Proton connection not verified')));
     if (data?.gateway?.message) report.append(element('p', t(data.gateway.message), 'muted'));
     if (data?.gateway?.publicIp) report.append(element('p', data.gateway.publicIp));
-    for (const check of data?.checks || []) report.append(element('p', t(check.message), 'muted'));
-    for (const issue of data?.issues || []) report.append(element('p', t(issue.message), 'muted'));
+    const details = element('details'); details.append(element('summary', t('Show checks and technical details')));
+    const seen = new Set();
+    for (const check of [...(data?.checks || []), ...(data?.issues || [])]) {
+      if (!check.message || seen.has(check.message)) continue;
+      seen.add(check.message); const line = element('p', t(check.message), 'muted');
+      (check.state === 'blocked' || (data?.issues || []).includes(check) ? report : details).append(line);
+    }
+    report.append(details);
     for (const route of data?.routes || []) {
       const row = element('div', undefined, 'gateway-route-status');
       row.append(element('strong', route.hostname || route.label), element('span', t(route.httpsVerified ? 'Public HTTPS verified' : route.message || 'Waiting for gateway verification')));
-      report.append(row);
+      details.append(row);
     }
     panel.append(report);
   }
@@ -89,23 +95,47 @@ globalThis.MediaVPNGateway = (() => {
     }
     panel.append(details);
   }
+  function plexPort(panel) {
+    const state = data?.plexPort || {available: false, enabled: false, ready: false};
+    const card = element('section', undefined, 'plex-port-card'); card.append(element('h3', t('Plex remote access')));
+    const toggle = element('input'); toggle.type = 'checkbox'; toggle.checked = state.enabled;
+    toggle.disabled = saving || (!state.enabled && (!state.available || !data?.enabled));
+    toggle.onchange = async () => {
+      if (saving) return;
+      saving = true;
+      try { data = await api('hub-web-gateway/plex-port', {enabled: toggle.checked}, 'PUT'); notice(t('Plex port configuration saved'), 'success'); }
+      catch (error) { notice(error.message); } finally { saving = false; render(); }
+    };
+    const label = element('label'); label.append(toggle, element('span', t('Use a separate Proton port for Plex'))); card.append(label);
+    card.append(element('p', t(state.message || (state.ready ? 'Plex remote access verified through Proton' : state.enabled ? 'Waiting for a separate verified Plex TCP port' : 'Connect Plex to the shared VPN before enabling its separate port')), 'muted'));
+    if (!state.available) card.append(element('p', t('Install Plex through MediaHub before enabling its separate port'), 'muted'));
+    if (state.publicIp && state.publicPort) card.append(element('strong', state.publicIp + ':' + state.publicPort));
+    panel.append(card);
+  }
   function render() {
     let panel = document.querySelector('#web-gateway');
     if (!panel) {
       panel = element('section', undefined, 'secondary gateway-wizard'); panel.id = 'web-gateway';
-      document.querySelector('#workspace').prepend(panel);
+      document.querySelector('#panel-apps').append(panel);
     }
-    panel.replaceChildren(element('h2', t('Shared VPN gateway')));
+    document.querySelector(tab === 'settings' ? '#panel-settings' : '#panel-apps').append(panel);
+    document.querySelector('.gateway-loading')?.remove();
+    panel.replaceChildren(element('h2', t(tab === 'settings' ? 'Cloudflare access' : 'Apps and domains')));
     panel.append(element('p', t('One guided setup for Proton, Cloudflare and your installed apps.'), 'muted'));
     if (!data) { panel.append(element('p', t('Open MediaVPN through MediaHub to configure app domains.'))); return; }
     const titles = ['Requirements', 'Proton profile', 'Cloudflare access', 'Apps and domains'];
     const nav = element('nav', undefined, 'gateway-steps'); nav.setAttribute('aria-label', t('Gateway setup'));
+    const showGuide = !data.enabled || editingSetup;
+    const displayStep = tab === 'settings' ? 2 : step;
     titles.forEach((title, index) => {
       const link = button((index + 1) + '. ' + t(title), async () => { step = index; });
       link.setAttribute('aria-current', index === step ? 'step' : 'false'); nav.append(link);
     });
-    panel.append(nav, element('h3', t(titles[step])));
-    if (step === 0) {
+    if (tab !== 'settings' && showGuide) panel.append(nav, element('h3', t(titles[step])));
+    if (tab !== 'settings' && !showGuide) {
+      for (const route of data.routes || []) { const row = element('article', undefined, 'compact-route'); row.append(element('strong', route.hostname), element('span', t(route.httpsVerified ? 'HTTPS verified' : ['blocked','conflict'].includes(route.status) ? 'Needs attention' : 'Checking...'), 'muted')); panel.append(row); }
+      panel.append(button('Edit gateway setup', async () => { editingSetup = true; step = 3; }));
+    } else if (displayStep === 0) {
       const list = element('ul');
       for (const line of [
         'Install MediaVPN and the apps you want to publish through MediaHub. Only installed apps appear in this guide.',
@@ -116,13 +146,13 @@ globalThis.MediaVPNGateway = (() => {
       ]) list.append(element('li', t(line)));
       panel.append(list);
       const help = element('a', t('Open Proton configuration guide')); help.href = 'https://protonvpn.com/support/port-forwarding-manual-setup'; help.target = '_blank'; help.rel = 'noopener noreferrer'; panel.append(help);
-    } else if (step === 1) {
+    } else if (displayStep === 1) {
       panel.append(field('VPN profile', choices(profiles, draft.profileId, value => { draft.profileId = value; }, 'VPN profile')));
       const selected = profiles.find(profile => profile.id === draft.profileId);
       panel.append(element('p', t(selected?.port_forwarding ? 'NAT-PMP is enabled for this profile.' : 'Choose a profile uploaded with Proton NAT-PMP enabled.'), 'muted'));
       panel.append(button('Upload Proton configuration', async () => document.querySelector('#profile-dialog').showModal()));
       panel.append(element('p', t('Keep the server from your Proton configuration initially. Other VPN profiles are stopped when the shared gateway starts.'), 'muted'));
-    } else if (step === 2) {
+    } else if (displayStep === 2) {
       panel.append(element('p', t(data.configured ? 'Cloudflare is connected. Select your app domains in the next step.' : 'Connect your Cloudflare account once. Your token is stored privately and is never shown again.'), 'muted'));
       if (data.configured && !editingCredentials) {
         const replace = button('Replace Cloudflare token', async () => { editingCredentials = true; });
@@ -151,27 +181,28 @@ globalThis.MediaVPNGateway = (() => {
       const activate = button('Activate gateway and app domains', async () => {
         data = await api('hub-web-gateway/config', {enabled: true, profileId: draft.profileId, routes: draft.routes}, 'PUT');
         draft.routes = data.routes.map(route => ({id: route.id, packageId: route.packageId, zoneId: route.zoneId, label: route.label}));
-        notice(t('Gateway setup saved. DNS, certificates and public HTTPS are being checked.'), 'success');
+        editingSetup = false; notice(t('Gateway setup saved. DNS, certificates and public HTTPS are being checked.'), 'success');
       }, true);
       activate.id = 'gateway-activate'; activate.disabled = !canActivate();
       panel.append(activate);
       if (!selected?.port_forwarding) panel.append(element('p', t('Complete the Proton profile step with NAT-PMP enabled before activation.'), 'muted'));
     }
     const actions = element('div', undefined, 'actions');
-    if (step) actions.append(button('Back', async () => { step--; }));
-    if (step < 3) actions.append(button('Next', async () => { step++; }, true));
+    if (tab !== 'settings' && showGuide && step) actions.append(button('Back', async () => { step--; }));
+    if (tab !== 'settings' && showGuide && step < 3) actions.append(button('Next', async () => { step++; }, true));
     actions.append(button('Refresh gateway status', async () => { await api('hub-web-gateway/reconcile', {}); await refresh(profiles, true); }));
     if (data.enabled) actions.append(button('Disable public domains', async () => {
       data = await api('hub-web-gateway/config', {enabled: false, profileId: data.profileId, routes: []}, 'PUT');
       draft.routes = []; notice(t('Public domains disabled. Check gateway status for cleanup progress.'), 'success');
     }));
-    panel.append(actions); summary(panel); outgoing(panel);
+    if (tab !== 'settings') { panel.append(actions); summary(panel); outgoing(panel); plexPort(panel); }
   }
   async function refresh(currentProfiles, force = false) {
-    if (appRole !== 'administrator') return;
+    if (appRole !== 'administrator' || refreshing) return;
     profiles = currentProfiles || profiles;
     const focused = document.activeElement?.closest?.('#web-gateway');
     if ((saving && !force) || (focused && ['INPUT', 'SELECT'].includes(document.activeElement.tagName) && !force)) return;
+    refreshing = true;
     try {
       const response = await Promise.all([api('hub-web-gateway'), api('hub-apps').catch(() => null)]);
       data = response[0]; shared = response[1];
@@ -187,7 +218,7 @@ globalThis.MediaVPNGateway = (() => {
     } catch (error) {
       notice(error.message);
       if (!data) render();
-    }
+    } finally { refreshing = false; }
   }
-  return {refresh};
+  return {refresh, setTab(value) { tab = value; if (data) render(); }};
 })();

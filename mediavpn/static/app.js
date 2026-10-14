@@ -3,6 +3,10 @@ let csrf = '';
 let needsSetup = false;
 let appRole = 'administrator';
 let busy = false;
+let vpnTab = "connection";
+let refreshing = null;
+let gatewayRefresh = null;
+const expandedProfiles = new Set();
 let noticeTimer;
 const message = document.querySelector('#message');
 const dialog = document.querySelector('#profile-dialog');
@@ -150,11 +154,44 @@ document.querySelector('#server-form').onsubmit = async event => {
     serverDialog.close(); await refresh(); notice(result.reconnecting ? t("Server selection saved. VPN reconnects automatically; connected apps await the newly verified port.") : t("Server selection saved. The profile stays stopped until you press Start."), 'success');
   });
 };
+function selectVPNTab(value, focus = false) {
+  if (!['connection', 'apps', 'settings'].includes(value)) return;
+  vpnTab = value;
+  for (const button of document.querySelectorAll('[data-vpn-tab]')) {
+    button.textContent = t(button.dataset.vpnTab === 'connection' ? 'Connection' : button.dataset.vpnTab === 'apps' ? 'Apps and domains' : 'Settings');
+    const selected = button.dataset.vpnTab === value;
+    button.setAttribute('aria-selected', String(selected)); button.tabIndex = selected ? 0 : -1;
+    document.querySelector('#panel-' + button.dataset.vpnTab).hidden = !selected;
+    if (selected && focus) button.focus();
+  }
+  document.querySelector('#add').hidden = value !== 'connection' || appRole !== 'administrator';
+  globalThis.MediaVPNGateway?.setTab(value);
+}
+for (const button of document.querySelectorAll('[data-vpn-tab]')) {
+  button.textContent = t(button.dataset.vpnTab === 'connection' ? 'Connection' : button.dataset.vpnTab === 'apps' ? 'Apps and domains' : 'Settings');
+  button.onclick = () => selectVPNTab(button.dataset.vpnTab);
+  button.onkeydown = event => {
+    const tabs = ['connection', 'apps', 'settings']; const index = tabs.indexOf(button.dataset.vpnTab);
+    if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
+      event.preventDefault(); selectVPNTab(event.key === 'Home' ? tabs[0] : event.key === 'End' ? tabs[2] : tabs[(index + (event.key === 'ArrowRight' ? 1 : 2)) % 3], true);
+    }
+  };
+}
+document.querySelector('#vpn-appearance').onclick = () => document.querySelector('.app-settings-button')?.click();
 async function refresh() {
+  if (refreshing) return refreshing;
+  refreshing = refreshProfiles().finally(() => { refreshing = null; });
+  return refreshing;
+}
+async function refreshProfiles() {
   const [runtime, profiles] = await Promise.all([api('runtime'),api('profiles')]);
   document.querySelector('#runtime-state').textContent = runtime.enabled ? t("VPN runtime enabled · status checked now") : t("Preview · tunnel startup is blocked. No traffic uses the VPN yet.");
   document.querySelector('#seedbox-state').textContent = runtime.mediaSeedConnected ? t("Connected through verified VPN") : t(runtime.seedbox?.reason) || t("Not connected");
-  await refreshSharedApps(profiles);
+  if (!gatewayRefresh) {
+    gatewayRefresh = refreshSharedApps(profiles).catch(error => notice(error.message)).finally(() => { gatewayRefresh = null; });
+  }
+  const activeProfile = profiles.find(profile => profile.healthy) || profiles.find(profile => profile.state === 'starting');
+  if (activeProfile) document.querySelector('#runtime-state').textContent = [activeProfile.name, t(statusNames[activeProfile.state]), countryLabel(activeProfile.country), activeProfile.publicIp].filter(Boolean).join(' \u00b7 ');
   const target = document.querySelector('#profiles'); target.replaceChildren();
   if (!profiles.length) {
     const empty = node('div', undefined, 'empty');
@@ -180,7 +217,14 @@ async function refresh() {
     controls.hidden = appRole !== 'administrator';
     details.append(forwarding);
     controls.append(start,stop,control(t("Remove"),async()=>{if (!confirm(t("Stop and remove {0}? The profile's private key will be deleted.", {0: profile.name}))) return; await api('profiles/'+profile.id,undefined,'DELETE'); await refresh(); notice(t("The connection has been removed."),'success');},'danger'));
-    item.append(details,controls); target.append(item);
+    const more = node('details', undefined, 'profile-more'); more.dataset.profileId = profile.id; more.open = expandedProfiles.has(profile.id);
+    more.append(node('summary', t('Show details')));
+    const endpoint = details.querySelector('p'); if (endpoint) more.append(endpoint);
+    const serverInfo = country.nextElementSibling; if (serverInfo) more.append(serverInfo);
+    more.append(forwarding);
+    const remove = controls.querySelector('.danger'); if (remove) more.append(remove);
+    more.ontoggle = () => { if (more.open) expandedProfiles.add(profile.id); else expandedProfiles.delete(profile.id); };
+    details.append(more); item.append(details,controls); target.append(item);
   }
 }
 async function refreshSharedApps(profiles) {
@@ -232,7 +276,7 @@ async function refreshSharedApps(profiles) {
     target.append(node('p', error.message, 'muted'));
   }
 }
-async function workspace() { document.querySelector('#add').hidden = appRole !== 'administrator'; document.querySelector('#identity').hidden = true; document.querySelector('.topbar').hidden = false; document.querySelector('#workspace').hidden = false; try { await refresh(); } catch(error) { notice(error.message); } }
+async function workspace() { selectVPNTab(vpnTab); document.querySelector('#add').hidden = appRole !== 'administrator'; document.querySelector('#identity').hidden = true; document.querySelector('.topbar').hidden = false; document.querySelector('#workspace').hidden = false; try { await refresh(); } catch(error) { notice(error.message); } }
 document.querySelector('#login').onsubmit = async event => { event.preventDefault(); const button = document.querySelector('#login-submit'); await action(button,async()=>{const body = Object.fromEntries(new FormData(event.target)); if (needsSetup) { await api('auth/setup',body); needsSetup = false; } csrf = (await api('auth/login',body)).csrf; const identity = await api('auth/me'); setLanguage(identity.language || 'en'); globalThis.MediaAppTheme.applyIdentity(identity); event.target.reset(); await workspace();}); };
 document.querySelector('#logout').onclick = event => action(event.target,async()=>{await api('auth/logout',{}); location.reload();});
 document.querySelector('#add').onclick = () => dialog.showModal();
@@ -244,13 +288,13 @@ async function initializeLogin() {
     const status = await api('auth/status'); needsSetup = status.needsSetup;
     if (status.managed) {
       document.querySelector('#login').hidden = true;
-      try { const identity = await api('auth/me'); setLanguage(identity.language || 'en'); globalThis.MediaAppTheme.applyIdentity(identity); csrf = identity.csrf; appRole = identity.role; await workspace(); }
+      try { const identity = await api('auth/me'); setLanguage(identity.language || 'en'); globalThis.MediaAppTheme.applyIdentity(identity); selectVPNTab(vpnTab); csrf = identity.csrf; appRole = identity.role; await workspace(); }
       catch (error) { if (error.status === 401) location.replace(status.loginUrl); else notice(error.message); }
       return;
     }
     document.querySelector('#identity-title').textContent = needsSetup ? t("A fresh start.") : t("Welcome back.");
     document.querySelector('#login-submit').textContent = needsSetup ? t("Create administrator") : t("Sign in");
-    try { const identity = await api('auth/me'); setLanguage(identity.language || 'en'); globalThis.MediaAppTheme.applyIdentity(identity); csrf = identity.csrf; appRole = identity.role || 'administrator'; await workspace(); } catch {}
+    try { const identity = await api('auth/me'); setLanguage(identity.language || 'en'); globalThis.MediaAppTheme.applyIdentity(identity); selectVPNTab(vpnTab); csrf = identity.csrf; appRole = identity.role || 'administrator'; await workspace(); } catch {}
   } catch(error) { notice(error.message); }
 }
 void initializeLogin();

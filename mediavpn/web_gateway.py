@@ -4,6 +4,7 @@
 # Docker failures can contain credential-bearing create payloads. Fail closed
 # with fixed public messages; never log their raw exception details.
 import hashlib
+import ipaddress
 import json
 import os
 import secrets
@@ -15,7 +16,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from fastapi import HTTPException
-from pydantic import BaseModel, ConfigDict, Field, SecretStr
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 
 from .gateway_image.config import ca_name
 from .gateway_image.config import routes as validate_routes
@@ -53,11 +54,26 @@ class WebRoute(BaseModel):
     caPem: str | None = Field(default=None, max_length=16384)
 
 
+class PlexTarget(BaseModel):
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
+    address: str
+    port: int = Field(default=32400, ge=32400, le=32400)
+
+    @field_validator("address")
+    @classmethod
+    def private_address(cls, value):
+        address = ipaddress.IPv4Address(value)
+        if not any(address in ipaddress.ip_network(n) for n in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")):
+            raise ValueError("Plex needs an approved private IPv4 address")
+        return str(address)
+
+
 class WebSettings(BaseModel):
     model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
     enabled: bool
     profileId: str | None = Field(default=None, pattern=r"^[a-f0-9]{24}$")
     routes: list[WebRoute] = Field(default_factory=list, max_length=32)
+    plex: PlexTarget | None = None
     cloudflareToken: SecretStr | None = Field(
         default=None, min_length=20, max_length=512
     )
@@ -71,7 +87,7 @@ class WebGateway:
         if self.directory.is_symlink():
             raise ValueError("Gateway state must not be a symbolic link")
         self.directory.chmod(0o700)
-        for name in ("http-config", "http-state", "nat-config", "nat-state"):
+        for name in ("http-config", "http-state", "nat-config", "nat-state", "plex-config", "plex-state"):
             path = self.directory / name
             path.mkdir(mode=0o700, exist_ok=True)
             if path.is_symlink():
@@ -105,6 +121,7 @@ class WebGateway:
         return (
             sorted(
                 {urlsplit(row["upstream"]).hostname + "/32" for row in state["routes"]}
+                | ({state["plex"]["address"] + "/32"} if state.get("plex") else set())
             )
             if state["enabled"]
             else []
@@ -162,6 +179,8 @@ class WebGateway:
                 "enabled": body.enabled,
                 "profileId": body.profileId,
                 "routes": normalized,
+                "plex": body.plex.model_dump() if body.plex and body.enabled else None,
+                "plexInternalPort": previous.get("plexInternalPort", 55000 + secrets.randbelow(9000)),
                 "internalPort": previous.get(
                     "internalPort", 35000 + secrets.randbelow(20000)
                 ),
@@ -193,12 +212,12 @@ class WebGateway:
         if not self.runtime.enabled:
             return
         with self.lock:
-            for role in ("web", "torrent-lease"):
+            for role in ("web", "torrent-lease", "plex-lease"):
                 row = self.helper(role)
                 if row:
                     row.stop(timeout=8)
                     row.remove(v=False)
-            for folder in ("http-state", "nat-state"):
+            for folder in ("http-state", "nat-state", "plex-state"):
                 save(
                     self.directory / folder / "status.json",
                     {"ready": False, "checkedAt": time.time()},
@@ -211,7 +230,7 @@ class WebGateway:
         fingerprint = hashlib.sha256(
             b"".join(
                 (source / name).read_bytes().replace(b"\r\n", b"\n")
-                for name in ("Dockerfile", "config.py", "observer.py", "natpmp.py")
+                for name in ("Dockerfile", "config.py", "observer.py", "natpmp.py", "plex_port.py")
             )
         ).hexdigest()
         client = self.runtime.docker()
@@ -299,17 +318,26 @@ class WebGateway:
                         "torrentEnabled": bool(self.torrent_enabled()),
                     },
                 )
+                plex_internal = state.get("plexInternalPort", 60000)
+                reserved = {port, internal, 32400, 51820, 51879}
+                while plex_internal in reserved:
+                    plex_internal = 55000 + ((plex_internal - 54999) % 9000)
+                save(self.directory / "plex-config/settings.json", {
+                    **common, "plex": state.get("plex"), "plexInternalPort": plex_internal,
+                    "reservedInternalPorts": sorted(reserved),
+                })
                 for role, prefix, script in (
                     ("web", "http", "observer.py"),
                     ("torrent-lease", "nat", "natpmp.py"),
+                    ("plex-lease", "plex", "plex_port.py"),
                 ):
                     row = self.helper(role)
-                    if role == "torrent-lease" and not self.torrent_enabled():
+                    if (role == "torrent-lease" and not self.torrent_enabled()) or (role == "plex-lease" and not state.get("plex")):
                         if row:
                             row.stop(timeout=8)
                             row.remove(v=False)
                         save(
-                            self.directory / "nat-state/status.json",
+                            self.directory / (prefix + "-state/status.json"),
                             {"ready": False, "checkedAt": time.time()},
                         )
                         continue
@@ -342,6 +370,8 @@ class WebGateway:
                                 "org.mediahub.mediavpn.generation": generation,
                             },
                             volumes={
+                                **({str(host / "nat-state"): {"bind": "/torrent", "mode": "ro"}} if role == "plex-lease" else {}),
+                                **({str(host / "plex-state"): {"bind": "/plex", "mode": "ro"}} if role == "torrent-lease" else {}),
                                 str(host / (prefix + "-config")): {
                                     "bind": "/config",
                                     "mode": "ro",
@@ -352,7 +382,7 @@ class WebGateway:
                                 },
                             },
                             cap_drop=["ALL"],
-                            cap_add=["NET_ADMIN"] if role == "torrent-lease" else [],
+                            cap_add=["NET_ADMIN"] if role in {"torrent-lease", "plex-lease"} else [],
                             read_only=True,
                             tmpfs={"/tmp": "rw,noexec,nosuid,nodev,size=16m"},
                             security_opt=["no-new-privileges:true"],
@@ -410,7 +440,7 @@ class WebGateway:
                 or not 0 <= time.time() - value.get("checkedAt", 0) < 15
             ):
                 return {}
-            port = value.get("webPort") if kind == "nat" else value.get("publicPort")
+            port = value.get("webPort") if kind in {"nat", "plex"} else value.get("publicPort")
             if port != observed.get("forwardedPort"):
                 return {}
             return value
@@ -433,6 +463,18 @@ class WebGateway:
             "internalPort": value["internalPort"],
             "publicPort": value["publicPort"],
         }
+
+    def plex_status(self, state, observed):
+        value = self.report("plex", state, observed) if state.get("plex") else {}
+        torrent = self.report("nat", state, observed)
+        valid = bool(value.get("ready") and value.get("expiresAt", 0) > time.time() + 5
+                     and value.get("publicPort") not in {observed.get("forwardedPort"), torrent.get("publicPort")}
+                     and value.get("targetAddress") == state.get("plex", {}).get("address")
+                     and value.get("targetPort") == 32400)
+        return {"enabled": bool(state.get("plex")), "ready": valid,
+                "publicPort": value.get("publicPort") if valid else None,
+                "publicIp": observed.get("publicIp") if valid else None,
+                "message": None if valid or not state.get("plex") else "Waiting for a separate verified Plex TCP port"}
 
     def public(self):
         state = self.settings()
@@ -485,6 +527,8 @@ class WebGateway:
             "routes": public_routes(state["routes"], certs),
             "checkedAt": time.time(),
             "maximumProviderConnections": 1,
+            "plex": state.get("plex"),
+            "plexPort": self.plex_status(state, observed),
             "torrentReady": bool(torrent and torrent.get("ready")),
             "torrentPort": torrent.get("publicPort") if torrent else None,
             "prerequisites": prerequisites["checks"],
@@ -558,7 +602,7 @@ class WebGateway:
         )
         writable = True
         try:
-            for name in ("http-config", "http-state", "nat-config", "nat-state"):
+            for name in ("http-config", "http-state", "nat-config", "nat-state", "plex-config", "plex-state"):
                 path = self.directory / name
                 if path.is_symlink():
                     raise OSError("Symbolic link")

@@ -29,9 +29,10 @@ def mapping(packet, opcode, private, forbidden, deleting=False):
         or result != 0
         or inside != private
         or not 1024 <= private <= 65535
-        or not 1 <= outside <= 65535
+        or not (0 if deleting else 1) <= outside <= 65535
         or outside in forbidden
         or (not deleting and not 30 <= lifetime <= 7200)
+        or (deleting and lifetime != 0)
     ):
         raise ValueError("NAT-PMP rejected the separate torrent mapping")
     return {
@@ -128,9 +129,14 @@ def main():
                 if granted is None or time.monotonic() - renewed >= min(
                     30, granted["lifetime"] / 2
                 ):
-                    granted = lease(
-                        value["internalPort"], previous, {value["publicPort"]}
-                    )
+                    forbidden = {value["publicPort"]}
+                    try:
+                        plex = json.loads(Path("/plex/status.json").read_text())
+                        if plex.get("generation") == value["generation"] and plex.get("expiresAt", 0) > time.time():
+                            forbidden.add(plex.get("publicPort"))
+                    except (OSError, ValueError, TypeError):
+                        pass
+                    granted = lease(value["internalPort"], previous, forbidden)
                     previous, renewed = granted["publicPort"], time.monotonic()
                 if time.monotonic() - renewed >= granted["lifetime"] - 5:
                     raise ValueError("Torrent lease expired")
