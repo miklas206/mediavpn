@@ -2,6 +2,7 @@
 globalThis.MediaVPNGateway = (() => {
   const t = (...args) => globalThis.MediaAppI18n.t(...args);
   let data, shared, profiles = [], step = 0, initialized = false, saving = false, editingCredentials = false, tab = "connection", editingSetup = false, refreshing = false;
+  let lastRefreshError = '';
   let draft = {profileId: '', accountId: '', token: '', routes: []};
   const canActivate = () => !saving && !data?.busy && data?.configured && profiles.some(profile => profile.id === draft.profileId && profile.port_forwarding)
     && draft.routes.length > 0 && draft.routes.every(route => route.packageId && route.zoneId && route.label.trim())
@@ -224,8 +225,16 @@ globalThis.MediaVPNGateway = (() => {
     if (saving && !force) return;
     refreshing = true;
     try {
-      const response = await Promise.all([api('hub-web-gateway'), api('hub-apps').catch(() => null)]);
-      data = response[0]; shared = response[1];
+      const response = await Promise.allSettled([api('hub-web-gateway'), api('hub-apps')]);
+      const failure = response.find(item => item.status === 'rejected');
+      if (failure) {
+        const message = failure.reason.message;
+        if (force || message !== lastRefreshError) notice(message);
+        lastRefreshError = message;
+      } else lastRefreshError = '';
+      if (response[0].status === 'fulfilled') data = response[0].value;
+      if (response[1].status === 'fulfilled') shared = response[1].value;
+      if (!data) { render(); return; }
       if (!Array.isArray(data.apps) || !Array.isArray(data.routes)) throw new Error(t('Update MediaHub and MediaVPN to use the guided gateway.'));
       if (!initialized) {
         draft = {profileId: data.profileId || shared?.gateway?.profileId || (profiles.length === 1 ? profiles[0].id : ''), accountId: data.accountId || '', token: '', routes: data.routes.map(route => ({id: route.id, packageId: route.packageId, zoneId: route.zoneId, label: route.label}))};

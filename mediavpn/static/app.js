@@ -17,8 +17,17 @@ message.addEventListener('focus', () => clearTimeout(noticeTimer));
 message.addEventListener('mouseleave', scheduleNotice);
 message.addEventListener('blur', scheduleNotice);
 async function api(path, body, method) {
-  const response = await fetch('/api/' + path, {method:method || (body ? 'POST' : 'GET'), headers:{'Content-Type':'application/json','X-MediaVPN-CSRF':csrf}, ...(body ? {body:JSON.stringify(body)} : {})});
-  const result = await response.json();
+  const response = await fetch('/api/' + path, {method:method || (body ? 'POST' : 'GET'), headers:{'Accept':'application/json','Content-Type':'application/json','X-MediaVPN-CSRF':csrf}, ...(body ? {body:JSON.stringify(body)} : {})});
+  let result;
+  const contentType = response.headers.get('Content-Type') || '';
+  try {
+    if (!/\bapplication\/(?:[\w.-]+\+)?json\b/i.test(contentType)) throw new Error('content-type');
+    result = await response.json();
+  } catch {
+    const error = new Error(t('The server returned an invalid API response for {0} (HTTP {1}). Please try again.', {0: '/api/' + path, 1: response.status}));
+    error.status = response.status;
+    throw error;
+  }
   if (!response.ok) { const error = new Error(typeof result.detail === 'string' ? result.detail : t("The action could not be completed.")); error.status = response.status; throw error; }
   return result;
 }

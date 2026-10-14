@@ -1,6 +1,7 @@
 // Account language; English source keys and Danish translations.
 (() => {
 const messages = {
+  "The server returned an invalid API response for {0} (HTTP {1}). Please try again.": "Serveren returnerede et ugyldigt API-svar fra {0} (HTTP {1}). Pr\u00f8v igen.",
   "Cloudflare": "Cloudflare",
   "Appearance": "Udseende",
   "Connection": "Forbindelse",
@@ -36,7 +37,7 @@ const messages = {
   "App storage path changed": "Appens lagersti er ændret",
   "App cache path is not approved": "Appens cachesti er ikke godkendt",
   "App configuration directory is missing; restore app data before retrying": "Appens konfigurationsmappe mangler; gendan appdata, før du prøver igen",
-  "MediaVPN 0.2.6": "MediaVPN 0.2.6",
+  "MediaVPN 0.2.7": "MediaVPN 0.2.7",
   "App domains": "App-domæner",
   "Choose an installed app. MediaHub creates its DNS record and tunnel route, and saves the HTTPS address for opening the app and SSO. VPN is optional for this connection.": "Vælg en installeret app. MediaHub opretter DNS og tunnelrute og gemmer HTTPS-adressen til åbning af appen og SSO. VPN er valgfrit for denne forbindelse.",
   "App domains require Zone DNS Edit and Account Cloudflare Tunnel Edit. A connector must be running and trust the app's local certificate.": "App-domæner kræver Zone DNS Edit og Account Cloudflare Tunnel Edit. En connector skal køre og have tillid til appens lokale certifikat.",
