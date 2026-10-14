@@ -89,6 +89,10 @@ class HubLogin:
                 response = await client.request(method, "/api/v1/sso/" + path, json=payload, headers={"Authorization": "Bearer " + token} if token else {})
                 if response.status_code in {401, 403}:
                     raise HTTPException(response.status_code, "MediaHub access denied")
+                if path.startswith("vpn-gateway") and response.status_code in {400, 409, 422, 429}:
+                    detail = response.json().get("error", {}).get("message")
+                    if isinstance(detail, str) and 0 < len(detail) <= 500:
+                        raise HTTPException(response.status_code, detail)
                 response.raise_for_status()
                 return response.json()["data"]
         except (httpx.HTTPError, ValueError, KeyError, TypeError):
@@ -112,3 +116,13 @@ class HubLogin:
         if public.get("id") != managed["user_id"] or public.get("role") not in {"administrator", "user", "viewer"}:
             raise HTTPException(403, "MediaHub access denied")
         return public
+
+    async def web_gateway(self, digest, path="", method="GET", payload=None):
+        if not self.enabled:
+            raise HTTPException(409, "Install MediaVPN through MediaHub to use guided app domains")
+        with self.database() as db:
+            managed = db.execute("SELECT token FROM hub_sessions WHERE digest=?", (digest,)).fetchone()
+        if not managed:
+            raise HTTPException(401, "Sign in through MediaHub")
+        suffix = "/" + path.lstrip("/") if path else ""
+        return await self.request("vpn-gateway" + suffix, method, payload, managed["token"], timeout=180)

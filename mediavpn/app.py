@@ -14,7 +14,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Res
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, SecretStr
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from mediavpn.auth import install_auth
@@ -23,6 +23,8 @@ from mediavpn.proton import ProtonSelectionError, ProtonSelector, selected_confi
 from mediavpn.runtime import Runtime
 from mediavpn.seedbox import Seedbox
 from mediavpn.shared_gateway import SharedGateway
+from mediavpn.shared_gateway import save as save_private
+from mediavpn.web_gateway import WebGateway, WebSettings, public_routes
 
 STATIC = Path(__file__).parent / "static"
 logger = logging.getLogger(__name__)
@@ -63,6 +65,27 @@ class RelayPeer(BaseModel):
     id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,80}$")
     name: str = Field(min_length=1, max_length=100)
     publicKey: str = Field(min_length=44, max_length=44)
+
+
+class GatewayCredentials(BaseModel):
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
+    accountId: str = Field(pattern=r"^[a-fA-F0-9]{32}$")
+    token: SecretStr = Field(min_length=20, max_length=512)
+
+
+class HubGatewayRoute(BaseModel):
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
+    id: str | None = Field(default=None, max_length=120, pattern=r"^[A-Za-z0-9_.:-]+$")
+    packageId: str = Field(min_length=1, max_length=120)
+    zoneId: str = Field(pattern=r"^[a-fA-F0-9]{32}$")
+    label: str = Field(min_length=1, max_length=100)
+
+
+class HubGatewayConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
+    enabled: bool
+    profileId: str | None = Field(default=None, pattern=r"^[a-f0-9]{24}$")
+    routes: list[HubGatewayRoute] = Field(default_factory=list, max_length=32)
 
 
 def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, selector=None):
@@ -108,6 +131,9 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
             connection.execute("ALTER TABLE profiles ADD COLUMN auto_country TEXT")
     seedbox = Seedbox(runtime, data)
     shared = SharedGateway(runtime, data, base)
+    web = WebGateway(runtime, data)
+    seedbox.web_gateway = web
+    web.torrent_enabled = lambda: bool(seedbox.settings()["enabled"] and seedbox.settings()["profileId"] == web.settings()["profileId"])
 
     def start_profile(profile):
         with seedbox.lock:
@@ -122,11 +148,15 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
             runtime.start(profile["id"], **options)
 
     def stop_attached(identifier):
+        if web.settings()["profileId"] == identifier:
+            web.stop()
         if shared.profile() == identifier:
             shared.stop_helper()
         settings = seedbox.settings()
         if runtime.enabled and settings["enabled"] and settings["profileId"] == identifier:
             seedbox.stop()
+
+    runtime.stop_dependents = stop_attached
 
     @asynccontextmanager
     async def lifespan(app):
@@ -136,9 +166,19 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
                 wakeup.clear()
                 try:
                     with lock, database() as connection:
+                        if shared.profile():
+                            for other in connection.execute("SELECT id FROM profiles WHERE id != ?", (shared.profile(),)):
+                                candidate = runtime.container(other["id"])
+                                if candidate:
+                                    candidate.reload()
+                                    if candidate.attrs.get("State", {}).get("Running"):
+                                        runtime.stop(other["id"])
                         desired = connection.execute("SELECT id,port_forwarding,auto_country FROM profiles WHERE desired=1").fetchall()
                         for profile in desired:
                             start_profile(profile)
+                    web.reconcile()
+                    if stopping.is_set():
+                        break
                     seedbox.reconcile()
                     shared.reconcile()
                 except Exception:
@@ -151,6 +191,10 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
                         shared.stop_helper()
                     except Exception:
                         pass
+                    try:
+                        web.stop()
+                    except Exception:
+                        pass
                 wakeup.wait(5)
         worker = threading.Thread(target=supervise, name="mediavpn-supervisor", daemon=True) if runtime.enabled else None
         if worker:
@@ -158,15 +202,24 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
         yield
         stopping.set()
         wakeup.set()
+        try:
+            web.close()
+        except Exception:
+            pass
         if worker:
             worker.join(timeout=20)
             try:
                 seedbox.stop()
             except Exception:
                 pass
+            try:
+                web.stop()
+            except Exception:
+                pass
 
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
     app.state.shared_gateway = shared
+    app.state.web_gateway = web
     if not os.environ.get("MEDIAVPN_HUB_URL"):
         app.add_middleware(TrustedHostMiddleware, allowed_hosts=[origin.hostname])
 
@@ -189,7 +242,7 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
             return Response(status_code=403)
         if request.headers.get("content-length"):
             try:
-                limit = 4 * 1024 * 1024 if request.url.path == "/api/integration/upload" else 24000
+                limit = 4 * 1024 * 1024 if request.url.path == "/api/integration/upload" else 1024 * 1024 if request.url.path == "/api/integration/web-gateway" else 24000
                 if int(request.headers["content-length"]) > limit:
                     return Response(status_code=413)
             except ValueError:
@@ -210,6 +263,12 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
         if not runtime.enabled or not key or not secrets.compare_digest(key, shared.token_path.read_text().strip()):
             raise HTTPException(401, "MediaHub management authentication required")
 
+    def gateway_machine_authorized(key: str = Header(default="", alias="X-MediaHub-Key")):
+        # Permit authenticated prerequisite inspection in preview mode. Enabling
+        # is separately blocked by the runtime preflight before any mutation.
+        if not key or not secrets.compare_digest(key, shared.token_path.read_text().strip()):
+            raise HTTPException(401, "MediaHub management authentication required")
+
     def find(identifier):
         with database() as connection:
             row = connection.execute("SELECT * FROM profiles WHERE id=?", (identifier,)).fetchone()
@@ -219,7 +278,7 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
 
     @app.get("/healthz")
     def health():
-        return {"status": "healthy", "version": "0.1.5"}
+        return {"status": "healthy", "version": "0.2.0"}
 
     @app.get("/api/runtime")
     def runtime_status(session=Depends(authorized)):
@@ -249,12 +308,78 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
     async def hub_gateway_choice(body: SeedboxSettings, session=Depends(authorized)):
         return await app.state.hub_login.vpn_apps(session["digest"], "gateway", "PUT", body.model_dump())
 
+    @app.get("/api/hub-web-gateway")
+    async def hub_web_gateway(session=Depends(authorized)):
+        return await app.state.hub_login.web_gateway(session["digest"])
+
+    @app.put("/api/hub-web-gateway/credentials")
+    async def hub_web_credentials(body: GatewayCredentials, session=Depends(authorized)):
+        return await app.state.hub_login.web_gateway(session["digest"], "credentials", "PUT",
+            {"accountId": body.accountId, "token": body.token.get_secret_value()})
+
+    @app.put("/api/hub-web-gateway/config")
+    async def hub_web_config(body: HubGatewayConfig, session=Depends(authorized)):
+        return await app.state.hub_login.web_gateway(session["digest"], "config", "PUT", body.model_dump())
+
+    @app.post("/api/hub-web-gateway/reconcile")
+    async def hub_web_reconcile(session=Depends(authorized)):
+        return await app.state.hub_login.web_gateway(session["digest"], "reconcile", "POST")
+
     @app.get("/api/integration/shared")
     def shared_machine_status(session=Depends(shared_machine_authorized)):
         return shared_overview()
 
+    @app.get("/api/integration/web-gateway")
+    def web_gateway_status(session=Depends(gateway_machine_authorized)):
+        return web.public()
+
+    @app.get("/api/integration/web-gateway/prerequisites")
+    def web_gateway_prerequisites(session=Depends(gateway_machine_authorized)):
+        return web.prerequisites()
+
+    @app.put("/api/integration/web-gateway")
+    def web_gateway_settings(body: WebSettings, session=Depends(gateway_machine_authorized)):
+        with lock, seedbox.lock:
+            routes = web.validate(body)
+            if body.enabled:
+                prerequisites = web.prerequisites(force=True)
+                if not prerequisites["ready"]:
+                    raise HTTPException(409, prerequisites["message"])
+                if not find(body.profileId)["port_forwarding"]:
+                    raise HTTPException(409, "Choose a Proton profile with NAT-PMP port forwarding enabled")
+                shared.endpoint()
+                _, metadata = parse_wireguard((profiles / f"{body.profileId}.conf").read_text())
+                overlay = ipaddress.ip_network("10.250.87.0/24")
+                if any(ipaddress.ip_interface(address).version == 4 and ipaddress.ip_interface(address).network.overlaps(overlay) for address in metadata["addresses"]):
+                    raise HTTPException(409, "The provider profile overlaps the private app relay network")
+                for row in routes:
+                    target = ipaddress.ip_address(urlsplit(row["upstream"]).hostname)
+                    if target in overlay or target in ipaddress.ip_network("10.2.0.0/24"):
+                        raise HTTPException(409, "An app origin overlaps the provider or private relay network")
+                current = seedbox.settings()
+                if current["enabled"] and current["profileId"] != body.profileId:
+                    seedbox.stop()
+                    save_private(seedbox.path, {"enabled": True, "profileId": body.profileId})
+                shared.configure(body.profileId, True)
+                web.configure(body)
+                with database() as connection:
+                    connection.execute("UPDATE profiles SET desired=0 WHERE id != ?", (body.profileId,))
+                    connection.execute("UPDATE profiles SET desired=1,port_forwarding=1 WHERE id=?", (body.profileId,))
+            else:
+                # Stop only inbound helpers; outgoing selected apps and their tunnel
+                # remain configured. DNS removal is owned by MediaHub's journal.
+                web.configure(body)
+            wakeup.set()
+        return {"enabled": body.enabled, "profileId": body.profileId, "ready": False,
+                "providerReady": False, "phase": "applying", "message": "Gateway configuration saved; preparing the runtime",
+                "publicIp": None, "publicPort": None,
+                "routes": public_routes(routes),
+                "checkedAt": time.time()}
+
     def configure_shared(body):
         with lock, seedbox.lock:
+            if web.settings()["enabled"] and (not body.enabled or body.profileId != web.settings()["profileId"]):
+                raise HTTPException(409, "Change or disable the web gateway before changing its shared VPN profile")
             if body.enabled:
                 selected = find(body.profileId)
                 _, metadata = parse_wireguard((profiles / f"{body.profileId}.conf").read_text())
@@ -477,6 +602,8 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
     @app.put("/api/profiles/{identifier}/forwarding")
     def forwarding(identifier: str, body: Forwarding, session=Depends(authorized)):
         with lock, seedbox.lock:
+            if not body.enabled and web.settings()["enabled"] and web.settings()["profileId"] == identifier:
+                raise HTTPException(409, "The web gateway requires Proton port forwarding")
             find(identifier)
             stop_attached(identifier)
             runtime.stop(identifier)

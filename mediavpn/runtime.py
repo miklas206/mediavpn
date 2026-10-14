@@ -1,12 +1,13 @@
-import os
 import ipaddress
 import json
-import time
+import os
 import re
+import time
 from datetime import datetime, timezone
 from pathlib import PurePosixPath
 
 from fastapi import HTTPException
+
 from .location import ExitLocation
 from .proton import ProtonSelector, selected_configuration
 
@@ -25,6 +26,9 @@ class Runtime:
         self.shared_profile = lambda: None
         self.shared_endpoint = lambda: None
         self.stop_shared = lambda: None
+        self.web_targets = lambda: []
+        self.stop_web = lambda: None
+        self.stop_dependents = lambda identifier: None
 
     def docker(self):
         if not self.enabled or not self.host_data or not self.host_data.is_absolute() or ".." in self.host_data.parts:
@@ -37,7 +41,8 @@ class Runtime:
     def container(self, identifier):
         client = self.docker()
         rows = client.containers.list(all=True, filters={"label": [f"{OWNER}=mediavpn", f"org.mediahub.mediavpn.profile={identifier}"]})
-        rows = [row for row in rows if getattr(row, "labels", {}).get("org.mediahub.vpn.shared-gateway") != "mediavpn"]
+        rows = [row for row in rows if getattr(row, "labels", {}).get("org.mediahub.vpn.shared-gateway") != "mediavpn"
+                and not getattr(row, "labels", {}).get("org.mediahub.mediavpn.helper")]
         if len(rows) > 1:
             raise HTTPException(409, "Profilen har flere runtime-containere; kontroller installationen")
         return rows[0] if rows else None
@@ -112,6 +117,7 @@ class Runtime:
             raise HTTPException(409, "Only the selected shared VPN profile may connect")
         endpoint = self.shared_endpoint() if shared else None
         marker = str(endpoint) if endpoint else ""
+        targets = ",".join(self.web_targets())
         try:
             container = self.container(identifier)
             mode = auto_country or ""
@@ -121,18 +127,22 @@ class Runtime:
                 environment = container.attrs.get("Config", {}).get("Env", [])
                 compatible = container.labels.get("org.mediahub.mediavpn.auto-country", "") == mode
                 compatible = compatible and container.labels.get("org.mediahub.mediavpn.shared", "") == marker
+                compatible = compatible and container.labels.get("org.mediahub.mediavpn.web-targets", "") == targets
                 running = container.attrs.get("State", {}).get("Running")
                 if compatible and (not mode or running) and f"VPN_PORT_FORWARDING={expected}" in environment and container.labels.get("org.mediahub.mediavpn.runtime") == "2":
                     if not container.attrs.get("State", {}).get("Running"):
                         container.start()
                     return
+                self.stop_dependents(identifier)
                 container.stop(timeout=10)
+                self.stop_web()
                 if shared:
                     self.stop_shared()
                 container.remove()
             filename = f"{identifier}.conf"
             labels = {OWNER: "mediavpn", "org.mediahub.mediavpn.profile": identifier, "org.mediahub.mediavpn.runtime": "2"}
             labels["org.mediahub.mediavpn.shared"] = marker
+            labels["org.mediahub.mediavpn.web-targets"] = targets
             if auto_country:
                 if not port_forwarding:
                     raise HTTPException(409, "Automatisk servervalg kræver Proton NAT-PMP")
@@ -153,7 +163,7 @@ class Runtime:
             self.docker().containers.run(
                 self.image, name=f"mediavpn-{identifier}", detach=True,
                 labels=labels,
-                environment={"VPN_SERVICE_PROVIDER": "custom", "VPN_TYPE": "wireguard", "FIREWALL": "on", "UPDATER_PERIOD": "0", "HTTP_CONTROL_SERVER_ADDRESS": "127.0.0.1:8000", "VPN_PORT_FORWARDING": "on" if port_forwarding else "off", "VPN_PORT_FORWARDING_PROVIDER": "protonvpn", "FIREWALL_INPUT_PORTS": "51879" if endpoint else ""},
+                environment={"VPN_SERVICE_PROVIDER": "custom", "VPN_TYPE": "wireguard", "FIREWALL": "on", "UPDATER_PERIOD": "0", "HTTP_CONTROL_SERVER_ADDRESS": "127.0.0.1:8000", "VPN_PORT_FORWARDING": "on" if port_forwarding else "off", "VPN_PORT_FORWARDING_PROVIDER": "protonvpn", "FIREWALL_INPUT_PORTS": "51879" if endpoint else "", "FIREWALL_OUTBOUND_SUBNETS": targets},
                 volumes={str(self.host_data / "profiles" / filename): {"bind": "/gluetun/wireguard/wg0.conf", "mode": "ro"}, str(self.host_data / control_config.name): {"bind": "/gluetun/auth/config.toml", "mode": "ro"}},
                 cap_add=["NET_ADMIN"], devices=["/dev/net/tun:/dev/net/tun:rwm"],
                 sysctls={"net.ipv6.conf.all.disable_ipv6": "1", "net.ipv6.conf.default.disable_ipv6": "1", **({"net.ipv4.ip_forward": "1"} if endpoint else {})},
@@ -170,8 +180,10 @@ class Runtime:
         if not self.enabled:
             return
         try:
+            self.stop_dependents(identifier)
             if self.shared_profile() == identifier:
                 self.stop_shared()
+                self.stop_web()
             container = self.container(identifier)
             if container:
                 container.stop(timeout=10)

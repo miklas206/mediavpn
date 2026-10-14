@@ -1,0 +1,18 @@
+.gateway-wizard { display: grid; gap: 1rem; margin-bottom: 1.5rem; }
+.gateway-wizard h2, .gateway-wizard h3, .gateway-wizard p { margin: 0; }
+.gateway-steps { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: .5rem; }
+.gateway-steps button { white-space: normal; min-width: 0; }
+.gateway-steps button[aria-current="step"] { border-color: var(--accent, #40d8eb); }
+.gateway-wizard label { display: grid; gap: .4rem; }
+.gateway-wizard label:has(input[type="checkbox"]) { display: flex; align-items: center; gap: .6rem; }
+.gateway-wizard label:has(input[type="checkbox"]) input { width: auto; }
+.gateway-credentials, .gateway-route { display: grid; gap: .75rem; }
+.gateway-route { padding: 1rem; border: 1px solid var(--line, #29414b); border-radius: .8rem; }
+.gateway-route input, .gateway-route select, .gateway-credentials input { box-sizing: border-box; width: 100%; min-width: 0; }
+.gateway-status, .gateway-route-status { display: grid; gap: .6rem; overflow-wrap: anywhere; }
+.gateway-status { padding-top: 1rem; border-top: 1px solid var(--line, #29414b); }
+.gateway-wizard ul { padding-left: 1.25rem; line-height: 1.6; }
+.gateway-wizard li + li { margin-top: .6rem; }
+.gateway-wizard .actions { flex-wrap: wrap; }
+.gateway-wizard .actions button { white-space: normal; }
+@media(max-width:640px) { .gateway-steps { grid-template-columns: repeat(2,minmax(0,1fr)); } }

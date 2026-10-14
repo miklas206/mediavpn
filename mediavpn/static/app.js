@@ -154,7 +154,7 @@ async function refresh() {
   const [runtime, profiles] = await Promise.all([api('runtime'),api('profiles')]);
   document.querySelector('#runtime-state').textContent = runtime.enabled ? t("VPN runtime enabled · status checked now") : t("Preview · tunnel startup is blocked. No traffic uses the VPN yet.");
   document.querySelector('#seedbox-state').textContent = runtime.mediaSeedConnected ? t("Connected through verified VPN") : t(runtime.seedbox?.reason) || t("Not connected");
-  await refreshSharedApps();
+  await refreshSharedApps(profiles);
   const target = document.querySelector('#profiles'); target.replaceChildren();
   if (!profiles.length) {
     const empty = node('div', undefined, 'empty');
@@ -183,7 +183,8 @@ async function refresh() {
     item.append(details,controls); target.append(item);
   }
 }
-async function refreshSharedApps() {
+async function refreshSharedApps(profiles) {
+  if (globalThis.MediaVPNGateway) return globalThis.MediaVPNGateway.refresh(profiles);
   let target = document.querySelector('#shared-apps');
   if (!target) {
     target = node('section', undefined, 'secondary app-connections');

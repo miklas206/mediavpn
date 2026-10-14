@@ -1,5 +1,8 @@
 # Shared gateway
 
+For public app domains, use the [guided Traefik web gateway](web-gateway.md).
+The outgoing relay described below shares the same selected provider connection.
+
 MediaVPN 0.1.1 supports one selected provider profile shared by MediaHub-managed
 apps. Enabling it stops other MediaVPN profiles and prevents a second provider
 profile from starting. MediaSeed must use the same profile and requires NAT-PMP

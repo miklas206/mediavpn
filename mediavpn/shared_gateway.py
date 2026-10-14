@@ -222,7 +222,7 @@ class SharedGateway:
             path=str(source),
             tag=self.image,
             rm=True,
-            labels={"org.mediahub.vpn.relay-source": fingerprint},
+            labels={"org.mediahub.vpn.relay-source": fingerprint, "org.mediahub.managed-component": "vpn-relay"},
             timeout=600,
         )
         return image.id

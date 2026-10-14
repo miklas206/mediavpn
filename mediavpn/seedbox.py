@@ -1,7 +1,7 @@
 import base64
 import hashlib
-import json
 import io
+import json
 import os
 import re
 import secrets
@@ -78,6 +78,7 @@ for section in ('Preferences','BitTorrent'):
     if not parser.has_section(section):parser.add_section(section)
 parser['Preferences'].update({'WebUI\\\\Address':'127.0.0.1','WebUI\\\\ServerDomains':'127.0.0.1;localhost','WebUI\\\\LocalHostAuth':'true','WebUI\\\\CSRFProtection':'true','WebUI\\\\HostHeaderValidation':'true'})
 parser['BitTorrent'].update({'Session\\\\Interface':'tun0','Session\\\\InterfaceName':'tun0','Session\\\\Port':sys.argv[1],'Session\\\\UPnP':'false','Session\\\\UseRandomPort':'false'})
+parser['BitTorrent']['Session\\\\AnnouncePort']=sys.argv[2] if len(sys.argv)>2 else '0'
 with open(path,'w') as output:parser.write(output,space_around_delimiters=False)
 """
 
@@ -89,6 +90,7 @@ class Seedbox:
         self.path = self.data / "seedbox.json"
         self.lock = threading.RLock()
         self.error = None
+        self.web_gateway = None
         self.seed_project = os.environ.get("MEDIAVPN_MEDIASEED_PROJECT", "mediaseed-preview")
         if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{1,80}", self.seed_project):
             raise ValueError("Invalid MediaSeed Compose project")
@@ -111,6 +113,15 @@ class Seedbox:
         if not self.path.exists():
             return {"enabled": False, "profileId": None}
         return json.loads(self.path.read_text())
+
+    def observed(self, profile):
+        value = self.runtime.status(profile)
+        lease = self.web_gateway.torrent(profile, value) if self.web_gateway else None
+        if lease is not None:
+            return {**value, "forwardedPort": lease.get("internalPort") if lease.get("ready") else None,
+                    "publicTorrentPort": lease.get("publicPort") if lease.get("ready") else None,
+                    "webGateway": True}
+        return value
 
     def configure(self, profile_id, enabled):
         if enabled and not re.fullmatch(r"[a-f0-9]{24}", profile_id or ""):
@@ -147,7 +158,7 @@ class Seedbox:
                 self.error = None
                 return
             try:
-                observed = self.runtime.status(settings["profileId"])
+                observed = self.observed(settings["profileId"])
                 if not observed["healthy"] or not observed["forwardedPort"]:
                     self.stop()
                     self.error = "VPN eller tildelt port er ikke verificeret"
@@ -170,6 +181,14 @@ class Seedbox:
                     return
                 response = self.execute(child, "app/preferences", "GET", {})
                 preferences = json.loads(base64.b64decode(response["body"]))
+                if observed.get("webGateway") and preferences.get("announce_port") != observed["publicTorrentPort"]:
+                    # libtorrent applies announce_port only at startup. Recreate the
+                    # owned child with its saved files; never claim a live setting took effect.
+                    child.stop(timeout=10)
+                    child.remove(v=False)
+                    self.create(vpn, generation, observed["forwardedPort"])
+                    self.error = "Torrent client is restarting with its separate public port"
+                    return
                 if preferences.get("current_network_interface") != "tun0" or preferences.get("listen_port") != observed["forwardedPort"] or preferences.get("upnp") or preferences.get("max_active_downloads") != 8 or not preferences.get("queueing_enabled"):
                     self.execute(child, "app/setPreferences", "POST", {"json": json.dumps({"current_network_interface": "tun0", "listen_port": observed["forwardedPort"], "upnp": False, "random_port": False, "max_active_downloads": 8, "max_active_torrents": -1, "max_active_uploads": -1, "queueing_enabled": True, "rss_processing_enabled": True, "rss_auto_downloading_enabled": False})})
                     response = self.execute(child, "app/preferences", "GET", {})
@@ -183,7 +202,7 @@ class Seedbox:
                     child.reload()
                     state = child.attrs.get("State", {})
                     try:
-                        current = self.runtime.status(settings["profileId"])
+                        current = self.observed(settings["profileId"])
                         current_vpn = self.runtime.container(settings["profileId"])
                         current_vpn.reload()
                         current_generation = self.generation(current_vpn)
@@ -235,7 +254,10 @@ class Seedbox:
         resolver.write_text("nameserver 127.0.0.1\noptions timeout:2 attempts:2\n")
         resolver.chmod(0o644)
         volumes[str(self.runtime.host_data / resolver.name)] = {"bind": "/etc/resolv.conf", "mode": "ro"}
-        prep = client.containers.run(source.attrs["Image"], entrypoint=["python3", "-c", PREPARE_CODE, str(port)], user="1000:1000", volumes={name: value for name, value in volumes.items() if value["bind"] == "/config"}, network_mode="none", detach=True, labels={CLIENT_OWNER: "preparation"})
+        settings = self.settings()
+        observed = self.observed(settings["profileId"]) if self.web_gateway and settings["enabled"] else {}
+        announce = observed.get("publicTorrentPort", 0)
+        prep = client.containers.run(source.attrs["Image"], entrypoint=["python3", "-c", PREPARE_CODE, str(port), str(announce)], user="1000:1000", volumes={name: value for name, value in volumes.items() if value["bind"] == "/config"}, network_mode="none", detach=True, labels={CLIENT_OWNER: "preparation"})
         try:
             if prep.wait(timeout=20).get("StatusCode") != 0:
                 raise ValueError("Torrent preparation failed")
@@ -246,7 +268,7 @@ class Seedbox:
     def status(self):
         with self.lock:
             settings = self.settings()
-            observed = self.runtime.status(settings["profileId"]) if settings["enabled"] else {"healthy": False, "forwardedPort": None, "publicIp": None}
+            observed = self.observed(settings["profileId"]) if settings["enabled"] else {"healthy": False, "forwardedPort": None, "publicIp": None}
             child = self.child() if self.runtime.enabled else None
             running = False
             if child:
@@ -262,12 +284,19 @@ class Seedbox:
                     response = self.execute(child, "app/preferences", "GET", {})
                     preferences = json.loads(base64.b64decode(response["body"]))
                     ready = preferences.get("current_network_interface") == "tun0" and preferences.get("listen_port") == observed["forwardedPort"] and not preferences.get("upnp")
+                    if observed.get("webGateway"):
+                        ready = ready and preferences.get("announce_port") == observed["publicTorrentPort"]
                 except Exception:
                     ready = False
-            return {**settings, "ready": ready, "downloadsEnabled": ready, "vpn": "verified" if ready else "unverified", "publicIp": observed["publicIp"], "forwardedPort": observed["forwardedPort"], "country": observed.get("country") if ready else None, "checkedAt": observed.get("checkedAt", time.time()), "reason": self.error or (None if ready else "Vaelg og start en VPN-profil med tildelt port")}
+            return {**settings, "ready": ready, "downloadsEnabled": ready, "vpn": "verified" if ready else "unverified", "publicIp": observed["publicIp"], "forwardedPort": observed.get("publicTorrentPort", observed["forwardedPort"]), "internalPort": observed["forwardedPort"], "country": observed.get("country") if ready else None, "checkedAt": observed.get("checkedAt", time.time()), "reason": self.error or (None if ready else "Vaelg og start en VPN-profil med tildelt port")}
 
     def generation(self, vpn):
         suffix = ":" + hashlib.sha256(json.dumps(self.media_storage, sort_keys=True).encode()).hexdigest()[:16] if self.media_storage else ""
+        if self.web_gateway:
+            settings = self.settings()
+            observed = self.observed(settings["profileId"]) if settings["enabled"] else {}
+            if observed.get("webGateway"):
+                suffix += ":web:" + str(observed.get("forwardedPort")) + ":" + str(observed.get("publicTorrentPort"))
         return vpn.id + ":" + vpn.attrs["State"]["StartedAt"] + suffix
 
     def valid_download_path(self, value):

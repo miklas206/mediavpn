@@ -35,3 +35,11 @@ def test_installed_app_selection_proxies_session_and_enforces_csrf(tmp_path, mon
         assert client.put("/api/hub-apps/jellyfin", json={"enabled": True}).status_code == 200
         assert calls[-1] == ("PUT", "/api/v1/sso/vpn/apps/jellyfin", {"enabled": True})
         assert client.put("/api/hub-apps/arbitrary", json={"enabled": True}).status_code == 422
+        assert client.get("/api/hub-web-gateway").status_code == 200
+        assert calls[-1][:2] == ("GET", "/api/v1/sso/vpn-gateway")
+        assert client.put("/api/hub-web-gateway/config", json={"enabled": False, "routes": []}).status_code == 200
+        assert calls[-1][1] == "/api/v1/sso/vpn-gateway/config"
+        assert client.post("/api/hub-web-gateway/reconcile").status_code == 200
+        assert calls[-1][1] == "/api/v1/sso/vpn-gateway/reconcile"
+        assert client.put("/api/hub-web-gateway/config", json={"enabled": True, "profileId": "a" * 24,
+            "routes": [{"packageId": "x", "zoneId": "b" * 32, "label": "seed", "upstream": "http://localhost"}]}).status_code == 422
