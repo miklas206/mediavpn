@@ -208,6 +208,12 @@ class WebGateway:
             raise ValueError("Multiple gateway helpers have the same owner")
         return rows[0] if rows else None
 
+    @staticmethod
+    def torrent_revision(state):
+        # A web route or Plex target edit does not change the torrent mapping.
+        return hashlib.sha256(json.dumps({key: state.get(key) for key in
+            ("enabled", "profileId", "internalPort")}, sort_keys=True).encode()).hexdigest()
+
     def stop(self):
         if not self.runtime.enabled:
             return
@@ -314,6 +320,7 @@ class WebGateway:
                     self.directory / "nat-config/settings.json",
                     {
                         **common,
+                        "revision": self.torrent_revision(state),
                         "internalPort": internal,
                         "torrentEnabled": bool(self.torrent_enabled()),
                     },
@@ -434,7 +441,7 @@ class WebGateway:
                 return {}
             if (
                 not observed.get("healthy")
-                or value.get("revision") != state["revision"]
+                or value.get("revision") != (self.torrent_revision(state) if kind == "nat" else state["revision"])
                 or value.get("generation") != self.generation(vpn)
                 or value.get("publicIp") != observed.get("publicIp")
                 or not 0 <= time.time() - value.get("checkedAt", 0) < 15

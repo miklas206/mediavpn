@@ -168,7 +168,7 @@ class Seedbox:
                     return
                 vpn = self.runtime.container(settings["profileId"])
                 vpn.reload()
-                generation = self.generation(vpn)
+                generation = self.generation(vpn, observed)
                 child = self.child()
                 if child and child.labels.get("org.mediahub.mediavpn.generation") != generation:
                     child.stop(timeout=10)
@@ -208,7 +208,7 @@ class Seedbox:
                         current = self.observed(settings["profileId"])
                         current_vpn = self.runtime.container(settings["profileId"])
                         current_vpn.reload()
-                        current_generation = self.generation(current_vpn)
+                        current_generation = self.generation(current_vpn, current)
                         age = (datetime.now(timezone.utc) - datetime.fromisoformat(state["StartedAt"].replace("Z", "+00:00"))).total_seconds()
                         if current["healthy"] and current["forwardedPort"] and child.labels.get("org.mediahub.mediavpn.generation") == current_generation and state.get("Running") and 0 <= age < 30:
                             self.error = "Torrentklienten starter; status er ikke klar"
@@ -279,7 +279,7 @@ class Seedbox:
                 vpn = self.runtime.container(settings["profileId"]) if settings["enabled"] else None
                 if vpn:
                     vpn.reload()
-                    generation = self.generation(vpn)
+                    generation = self.generation(vpn, observed)
                     running = child.attrs.get("State", {}).get("Running", False) and child.labels.get("org.mediahub.mediavpn.generation") == generation
             ready = bool(settings["enabled"] and observed["healthy"] and observed["forwardedPort"] and running and not self.error)
             if ready:
@@ -293,11 +293,11 @@ class Seedbox:
                     ready = False
             return {**settings, "ready": ready, "downloadsEnabled": ready, "vpn": "verified" if ready else "unverified", "publicIp": observed["publicIp"], "forwardedPort": observed.get("publicTorrentPort", observed["forwardedPort"]), "internalPort": observed["forwardedPort"], "country": observed.get("country") if ready else None, "checkedAt": observed.get("checkedAt", time.time()), "reason": self.error or (None if ready else "Vaelg og start en VPN-profil med tildelt port")}
 
-    def generation(self, vpn):
+    def generation(self, vpn, observed=None):
         suffix = ":" + hashlib.sha256(json.dumps(self.media_storage, sort_keys=True).encode()).hexdigest()[:16] if self.media_storage else ""
         if self.web_gateway:
             settings = self.settings()
-            observed = self.observed(settings["profileId"]) if settings["enabled"] else {}
+            observed = observed if observed is not None else self.observed(settings["profileId"]) if settings["enabled"] else {}
             if observed.get("webGateway"):
                 suffix += ":web:" + str(observed.get("forwardedPort")) + ":" + str(observed.get("publicTorrentPort"))
         return vpn.id + ":" + vpn.attrs["State"]["StartedAt"] + suffix

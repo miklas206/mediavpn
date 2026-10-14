@@ -613,7 +613,7 @@ def test_torrent_gate_rejects_missing_expired_or_reserved_mapping(controlled):
     report = {
         "ready": True,
         "generation": gateway.generation(vpn),
-        "revision": gateway.settings()["revision"],
+        "revision": gateway.torrent_revision(gateway.settings()),
         "publicIp": "8.8.8.8",
         "webPort": 45000,
         "internalPort": 39000,
@@ -871,3 +871,25 @@ def test_browser_proxy_requires_session_csrf_and_rejects_raw_origins(tmp_path):
     assert app.state.hub_login.web_gateway.await_args.args[-1]["token"] == TOKEN
     client.headers.pop("X-MediaVPN-CSRF")
     assert client.post("/api/hub-web-gateway/reconcile").status_code == 403
+
+
+def test_plex_and_route_changes_do_not_invalidate_torrent_lease(controlled):
+    gateway, runtime, _, vpn, observed = controlled
+    gateway.reconcile()
+    state = gateway.settings()
+    before = gateway.torrent_revision(state)
+    report = {"ready": True, "generation": gateway.generation(vpn), "revision": before,
+              "publicIp": observed["publicIp"], "webPort": observed["forwardedPort"],
+              "internalPort": state["internalPort"], "publicPort": 55000,
+              "expiresAt": time.time() + 60, "checkedAt": time.time()}
+    save(gateway.directory / "nat-state/status.json", report)
+    assert gateway.torrent(PROFILE, observed)["ready"]
+    changed = settings().model_dump() | {"plex": {"address": "192.168.1.50", "port": 32400},
+        "routes": [ROUTE | {"hostname": "changed.example.com"}]}
+    gateway.configure(WebSettings.model_validate(changed))
+    assert gateway.settings()["revision"] != state["revision"]
+    assert gateway.torrent_revision(gateway.settings()) == before
+    assert gateway.torrent(PROFILE, observed)["ready"]
+    for key, value in [("profileId", "b" * 24), ("internalPort", 35001), ("enabled", False)]:
+        assert gateway.torrent_revision(state | {key: value}) != before
+    assert not gateway.torrent(PROFILE, observed | {"healthy": False})["ready"]

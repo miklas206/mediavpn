@@ -116,3 +116,13 @@ def test_torrent_integration_key_cannot_manage_other_app_relays(tmp_path):
     response = client.get("/api/integration/shared", headers={"X-MediaHub-Key": management_key})
     assert response.status_code == 200
     assert management_key not in response.text and torrent_key not in response.text
+
+
+@pytest.mark.parametrize("age,expected", [(0, True), (89, True), (120, True), (165, True), (179, True), (180, False), (181, False), (-1, False)])
+def test_client_health_accepts_normal_rekey_window_but_not_expired_session(monkeypatch, age, expected):
+    from mediavpn.relay_image import runtime as relay
+    monkeypatch.setattr(relay, "CONFIG", SimpleNamespace(read_text=lambda: "{}"))
+    monkeypatch.setattr(relay, "validate", lambda value: {"mode": "client"})
+    monkeypatch.setattr(relay.time, "time", lambda: 1000)
+    monkeypatch.setattr(relay, "command", lambda *args: "synthetic-key " + str(1000 - age) if args[0] == "wg" else "")
+    assert relay.health() is expected
