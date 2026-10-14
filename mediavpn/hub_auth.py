@@ -83,9 +83,9 @@ class HubLogin:
             raise HTTPException(503, "Invalid MediaHub app origin")
         return value
 
-    async def request(self, path, method="GET", payload=None, token=None):
+    async def request(self, path, method="GET", payload=None, token=None, timeout=5):
         try:
-            async with httpx.AsyncClient(base_url=self.hub, verify=self.verify, timeout=5, follow_redirects=False, trust_env=False, transport=self.transport) as client:
+            async with httpx.AsyncClient(base_url=self.hub, verify=self.verify, timeout=timeout, follow_redirects=False, trust_env=False, transport=self.transport) as client:
                 response = await client.request(method, "/api/v1/sso/" + path, json=payload, headers={"Authorization": "Bearer " + token} if token else {})
                 if response.status_code in {401, 403}:
                     raise HTTPException(response.status_code, "MediaHub access denied")
@@ -93,6 +93,15 @@ class HubLogin:
                 return response.json()["data"]
         except (httpx.HTTPError, ValueError, KeyError, TypeError):
             raise HTTPException(503, "MediaHub authentication unavailable") from None
+
+    async def vpn_apps(self, digest, path="apps", method="GET", payload=None):
+        if not self.enabled:
+            raise HTTPException(409, "Connect MediaVPN to MediaHub to select installed apps")
+        with self.database() as db:
+            managed = db.execute("SELECT token FROM hub_sessions WHERE digest=?", (digest,)).fetchone()
+        if not managed:
+            raise HTTPException(401, "Sign in through MediaHub")
+        return await self.request("vpn/" + path, method, payload, managed["token"], timeout=180)
 
     async def identity(self, digest):
         with self.database() as db:

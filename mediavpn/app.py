@@ -219,7 +219,7 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
 
     @app.get("/healthz")
     def health():
-        return {"status": "healthy", "version": "0.1.3"}
+        return {"status": "healthy", "version": "0.1.4"}
 
     @app.get("/api/runtime")
     def runtime_status(session=Depends(authorized)):
@@ -234,6 +234,20 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
     @app.get("/api/shared")
     def shared_status(session=Depends(authorized)):
         return shared_overview()
+
+    @app.get("/api/hub-apps")
+    async def hub_apps(session=Depends(authorized)):
+        return await app.state.hub_login.vpn_apps(session["digest"])
+
+    @app.put("/api/hub-apps/{app_id}")
+    async def hub_app_choice(app_id: str, body: Forwarding, session=Depends(authorized)):
+        if app_id not in {"mediaseed", "plex", "jellyfin"}:
+            raise HTTPException(422, "Choose an installed MediaHub app")
+        return await app.state.hub_login.vpn_apps(session["digest"], "apps/" + app_id, "PUT", body.model_dump())
+
+    @app.put("/api/hub-gateway")
+    async def hub_gateway_choice(body: SeedboxSettings, session=Depends(authorized)):
+        return await app.state.hub_login.vpn_apps(session["digest"], "gateway", "PUT", body.model_dump())
 
     @app.get("/api/integration/shared")
     def shared_machine_status(session=Depends(shared_machine_authorized)):

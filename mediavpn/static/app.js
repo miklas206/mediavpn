@@ -154,6 +154,7 @@ async function refresh() {
   const [runtime, profiles] = await Promise.all([api('runtime'),api('profiles')]);
   document.querySelector('#runtime-state').textContent = runtime.enabled ? t("VPN runtime enabled · status checked now") : t("Preview · tunnel startup is blocked. No traffic uses the VPN yet.");
   document.querySelector('#seedbox-state').textContent = runtime.mediaSeedConnected ? t("Connected through verified VPN") : t(runtime.seedbox?.reason) || t("Not connected");
+  await refreshSharedApps();
   const target = document.querySelector('#profiles'); target.replaceChildren();
   if (!profiles.length) {
     const empty = node('div', undefined, 'empty');
@@ -180,6 +181,53 @@ async function refresh() {
     details.append(forwarding);
     controls.append(start,stop,control(t("Remove"),async()=>{if (!confirm(t("Stop and remove {0}? The profile's private key will be deleted.", {0: profile.name}))) return; await api('profiles/'+profile.id,undefined,'DELETE'); await refresh(); notice(t("The connection has been removed."),'success');},'danger'));
     item.append(details,controls); target.append(item);
+  }
+}
+async function refreshSharedApps() {
+  let target = document.querySelector('#shared-apps');
+  if (!target) {
+    target = node('section', undefined, 'secondary app-connections');
+    target.id = 'shared-apps';
+    document.querySelector('#workspace').append(target);
+  }
+  target.replaceChildren(node('h2', t('Shared VPN gateway')));
+  if (appRole !== 'administrator') { target.hidden = true; return; }
+  target.hidden = false;
+  try {
+    const data = await api('hub-apps');
+    // The managed list is authoritative; the legacy fixed MediaSeed summary
+    // must not advertise an app that is not installed.
+    const legacy = document.querySelector('#seedbox-state').closest('section');
+    if (legacy) legacy.hidden = true;
+    target.append(node('p', t('One Proton connection shared by selected installed apps. Internet access is blocked if the VPN fails.')));
+    const select = node('select'); select.setAttribute('aria-label', t('VPN profile'));
+    for (const profile of data.gateway.profiles) {
+      const option = node('option', profile.name); option.value = profile.id;
+      option.selected = profile.id === data.gateway.profileId; select.append(option);
+    }
+    const enable = control(t('Enable shared VPN'), async () => {
+      await api('hub-gateway', {enabled: true, profileId: select.value}, 'PUT'); await refresh();
+    }, 'primary'); enable.disabled = !data.gateway.profiles.length;
+    const stop = control(t('Stop shared VPN'), async () => {
+      await api('hub-gateway', {enabled: false, profileId: data.gateway.profileId}, 'PUT'); await refresh();
+    }); stop.disabled = !data.gateway.enabled;
+    const controls = node('div', undefined, 'actions'); controls.append(select, enable, stop);
+    target.append(controls, node('p', t(data.gateway.ready ? 'Shared VPN verified' : 'Shared VPN not verified')));
+    if (data.gateway.message) target.append(node('p', t(data.gateway.message), 'muted'));
+    for (const app of data.apps) {
+      const label = node('label'); const toggle = node('input'); toggle.type = 'checkbox';
+      toggle.checked = app.enabled === true;
+      toggle.disabled = app.enabled === null || (!app.enabled && !data.gateway.ready);
+      toggle.onchange = () => action(toggle, async () => {
+        try { await api('hub-apps/' + app.id, {enabled: toggle.checked}, 'PUT'); }
+        finally { await refreshSharedApps(); }
+      });
+      label.append(toggle, node('span', app.name + ' · ' + t(app.ready ? 'Connected' : app.phase === 'unavailable' ? 'Status unavailable' : 'Not connected')));
+      target.append(label);
+    }
+    if (!data.apps.length) target.append(node('p', t('Install a supported app in MediaHub to share this connection.')));
+  } catch (error) {
+    target.append(node('p', error.message, 'muted'));
   }
 }
 async function workspace() { document.querySelector('#add').hidden = appRole !== 'administrator'; document.querySelector('#identity').hidden = true; document.querySelector('.topbar').hidden = false; document.querySelector('#workspace').hidden = false; try { await refresh(); } catch(error) { notice(error.message); } }

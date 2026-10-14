@@ -5,7 +5,11 @@ apps. Enabling it stops other MediaVPN profiles and prevents a second provider
 profile from starting. MediaSeed must use the same profile and requires NAT-PMP
 port forwarding for its download motor.
 
-The shared gateway is opt-in through the MediaHub app configuration page. It is
+The shared gateway is opt-in through MediaVPN's Shared VPN gateway section or
+the MediaHub app configuration page. Only installed supported MediaHub apps are
+listed. MediaVPN delegates selection with the current package-bound SSO session;
+the Hub verifies global administrator rights on every call. No management key
+is exposed in the browser. It is
 available only with the explicitly enabled Docker runtime. Standard unprivileged
 Compose remains a preview and starts no real VPN connection.
 
