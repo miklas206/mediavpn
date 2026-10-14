@@ -44,9 +44,9 @@ def install_auth(app, database, base, hub_transport=None):
     install_theme_preferences(app, database, authorized, hub.enabled)
 
     @app.get("/api/auth/status")
-    async def status():
+    async def status(request: Request):
         if hub.enabled:
-            return {"needsSetup": False, "managed": True, "loginUrl": await hub.origin() + "/auth/hub/start"}
+            return {"needsSetup": False, "managed": True, "loginUrl": await hub.origin(request) + "/auth/hub/start"}
         with database() as connection:
             return {"needsSetup": connection.execute("SELECT COUNT(*) FROM accounts").fetchone()[0] == 0}
 

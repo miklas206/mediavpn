@@ -1,5 +1,6 @@
 import base64
 import hashlib
+import ipaddress
 import os
 import secrets
 import ssl
@@ -38,7 +39,7 @@ class HubLogin:
 
         @app.get("/auth/hub/start")
         async def start(request: Request):
-            origin = await self.origin()
+            origin = await self.origin(request)
             if request.headers.get("host", "").lower() != urlsplit(origin).netloc.lower():
                 return RedirectResponse(origin + "/auth/hub/start", status_code=303, headers={"Cache-Control": "no-store"})
             state, verifier = secrets.token_urlsafe(48), secrets.token_urlsafe(48)
@@ -48,7 +49,12 @@ class HubLogin:
                 if db.execute("SELECT COUNT(*) FROM hub_attempts").fetchone()[0] >= 1000:
                     raise HTTPException(429, "Try again later")
                 db.execute("INSERT INTO hub_attempts VALUES (?,?,?)", (hashlib.sha256(state.encode()).hexdigest(), verifier, time.time() + 300))
-            response = RedirectResponse(self.browser_hub + "/api/v1/sso/authorize?" + urlencode({"packageId": PACKAGE, "state": state, "challenge": challenge}), status_code=303, headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"})
+            try:
+                local = origin == self.base and ipaddress.ip_address(urlsplit(origin).hostname).is_private
+            except ValueError:
+                local = False
+            browser_hub = self.hub if local else self.browser_hub
+            response = RedirectResponse(browser_hub + "/api/v1/sso/authorize?" + urlencode({"packageId": PACKAGE, "state": state, "challenge": challenge, "appOrigin": origin}), status_code=303, headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"})
             response.set_cookie("mediavpn_sso_state", state, httponly=True, secure=True, samesite="lax", max_age=300, path="/auth/hub")
             return response
 
@@ -76,7 +82,9 @@ class HubLogin:
             response.delete_cookie("mediavpn_sso_state", path="/auth/hub")
             return response
 
-    async def origin(self):
+    async def origin(self, request=None):
+        if request is not None and request.headers.get("host", "").lower() == urlsplit(self.base).netloc.lower():
+            return self.base
         value = (await self.request("origin?packageId=" + PACKAGE)).get("origin", "")
         parsed = urlsplit(value)
         if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or parsed.path or parsed.query or parsed.fragment:

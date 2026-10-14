@@ -278,7 +278,7 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
 
     @app.get("/healthz")
     def health():
-        return {"status": "healthy", "version": "0.2.8"}
+        return {"status": "healthy", "version": "0.2.9"}
 
     @app.get("/api/runtime")
     def runtime_status(session=Depends(authorized)):
@@ -377,7 +377,7 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
         return {"enabled": body.enabled, "profileId": body.profileId, "ready": False,
                 "providerReady": False, "phase": "applying", "message": "Gateway configuration saved; preparing the runtime",
                 "publicIp": None, "publicPort": None,
-                "routes": public_routes(routes),
+                "routes": public_routes(routes), "plex": body.plex.model_dump() if body.plex and body.enabled else None,
                 "checkedAt": time.time()}
 
     def configure_shared(body):
