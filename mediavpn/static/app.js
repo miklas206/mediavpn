@@ -224,6 +224,7 @@ async function refreshSharedApps() {
       });
       label.append(toggle, node('span', app.name + ' · ' + t(app.ready ? 'Connected' : app.phase === 'unavailable' ? 'Status unavailable' : 'Not connected')));
       target.append(label);
+      if (app.message) target.append(node('p', t(app.message), 'muted'));
     }
     if (!data.apps.length) target.append(node('p', t('Install a supported app in MediaHub to share this connection.')));
   } catch (error) {
