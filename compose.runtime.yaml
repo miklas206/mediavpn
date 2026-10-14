@@ -1,6 +1,8 @@
 services:
   app:
     user: "0:0"
+    devices:
+      - /dev/net/tun:/dev/net/tun:rwm
     environment:
       MEDIAVPN_RUNTIME: docker
       MEDIAVPN_HOST_DATA: ${MEDIAVPN_HOST_DATA:?Set absolute protected Linux host directory}

@@ -44,3 +44,5 @@ verified. Actual Proton multiple-lease acceptance, ACME issuance, public SSO and
 physical loss-of-VPN behavior still need verification on the selected host.
 
 See the [MediaHub gateway guide](https://github.com/miklas206/mediahub-platform/blob/main/docs/vpn-gateway-guide.md).
+
+The privileged runtime override maps `/dev/net/tun` into the MediaVPN application as well as its provider containers. The application checks that this character device can actually be opened before enabling the gateway. Native Docker hosts must provide a usable TUN device; the MediaHub Proxmox installer provisions the host/LXC mapping before installing apps. No NET_ADMIN capability is required by the management application for this check.
