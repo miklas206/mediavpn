@@ -52,7 +52,7 @@ def test_unicode_download_paths_stay_inside_approved_mounts(tmp_path, monkeypatc
     import json
     monkeypatch.setenv("MEDIAVPN_MEDIASEED_STORAGE", json.dumps([{"id":"movies","source":"/mnt/media/movies","path":"/downloads/media/movies"}]))
     controller = Seedbox(SimpleNamespace(enabled=False), tmp_path)
-    assert controller.valid_download_path("/downloads/media/movies/Danske film æ")
+    assert controller.valid_download_path("/downloads/media/movies/Danske film Ã¦")
     for path in ["/downloads/../etc", "/downloads/media/unapproved", "/downloads//folder", "/downloads/media/movies/../tv", "/downloads/x\nsecret", "/downloads/a\\b"]:
         assert not controller.valid_download_path(path)
     vpn = SimpleNamespace(id="vpn", attrs={"State":{"StartedAt":"now"}})
@@ -234,3 +234,44 @@ def test_rss_download_rejects_unapproved_addresses_before_vpn(tmp_path, url):
     with pytest.raises(HTTPException) as error:
         controller.rpc("rss/torrent", "GET", {"url": url})
     assert error.value.status_code == 422
+
+
+def test_rss_fetch_identifies_actual_client_and_keeps_redirects_disabled(monkeypatch, capsys):
+    import base64
+    import io
+    import json
+    import sys
+    import urllib.request
+    from pathlib import Path
+    from mediavpn.seedbox import RPC_CODE
+
+    class Opener:
+        def __init__(self, external=False):
+            self.external = external
+        def open(self, request, timeout):
+            if self.external:
+                assert request.get_header("User-agent") == "qBittorrent/5.2.0"
+                assert request.full_url == "https://nordicbytes.org/torrent/download/synthetic"
+                content = b"dee"
+            else:
+                content = b"v5.2.0" if request.full_url.endswith("app/version") else b"Ok."
+            response = io.BytesIO(content)
+            response.status = 200
+            return response
+    created = []
+    def build(*handlers):
+        external = any(isinstance(h, urllib.request.HTTPRedirectHandler) for h in handlers)
+        if external:
+            handler = next(h for h in handlers if isinstance(h, urllib.request.HTTPRedirectHandler))
+            assert handler.redirect_request(None, None, None, None, None, None) is None
+        created.append(external)
+        return Opener(external)
+    monkeypatch.setattr(urllib.request, "build_opener", build)
+    original = Path.read_text
+    monkeypatch.setattr(Path, "read_text", lambda self, *args, **kwargs: "synthetic-password" if self.as_posix() == "/secrets/qbit-password" else original(self, *args, **kwargs))
+    body = {"path": "rss/torrent", "method": "GET", "payload": {"url": "https://nordicbytes.org/torrent/download/synthetic"}}
+    monkeypatch.setattr(sys, "argv", ["rpc", base64.b64encode(json.dumps(body).encode()).decode()])
+    exec(compile(RPC_CODE, "rpc", "exec"), {})
+    result = json.loads(capsys.readouterr().out)
+    assert result == {"status": 200, "body": base64.b64encode(b"dee").decode()}
+    assert created == [False, True]

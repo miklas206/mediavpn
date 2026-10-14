@@ -19,7 +19,7 @@ ALLOWED_READS = {"app/version", "app/preferences", "torrents/info", "torrents/ca
 ALLOWED_WRITES = {"torrents/add", "torrents/start", "torrents/stop", "torrents/delete", "torrents/setShareLimits", "torrents/setFilePriority", "torrents/createCategory", "torrents/topPrio", "rss/addFeed", "rss/removeItem", "rss/refreshItem"}
 
 RPC_CODE = """
-import base64,http.cookiejar,json,pathlib,sys,urllib.request,urllib.parse,urllib.error
+import base64,http.cookiejar,json,pathlib,re,sys,urllib.request,urllib.parse,urllib.error
 body=json.loads(base64.b64decode(sys.argv[1]))
 endpoint='http://127.0.0.1:8080/api/v2/'
 opener=urllib.request.build_opener(urllib.request.ProxyHandler({}),urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
@@ -41,7 +41,10 @@ try:
         class NoRedirect(urllib.request.HTTPRedirectHandler):
             def redirect_request(self,*args):return None
         fetcher=urllib.request.build_opener(urllib.request.ProxyHandler({}),NoRedirect())
-        with fetcher.open(payload['url'],timeout=8) as response:
+        version=base64.b64decode(send('app/version')['body']).decode().strip().removeprefix('v')
+        if not re.fullmatch(r'[0-9]+[.][0-9]+[.][0-9]+[A-Za-z0-9.-]{0,32}',version):raise ValueError('Invalid client version')
+        request=urllib.request.Request(payload['url'],headers={'User-Agent':'qBittorrent/'+version})
+        with fetcher.open(request,timeout=8) as response:
             raw=response.read(4*1024*1024+1)
             if len(raw)>4*1024*1024 or not raw.startswith(b'd') or not raw.endswith(b'e'):raise ValueError('Invalid torrent')
             result={'status':response.status,'body':base64.b64encode(raw).decode()}
