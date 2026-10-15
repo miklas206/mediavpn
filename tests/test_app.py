@@ -86,3 +86,14 @@ def test_machine_upload_passes_explicit_start_choice_through_gate(tmp_path, monk
             assert captured[-1][1] == b"dee"
             if "tags=" in query:
                 assert captured[-1][0]["tags"] == "MediaSeed-Cleanup-" + "a" * 24
+
+
+def test_theme_favicon_loads_without_allowing_external_images_or_inline_scripts(tmp_path):
+    with TestClient(create_app(tmp_path, "http://testserver")) as client:
+        response = client.get("/")
+        policy = dict(part.strip().split(" ", 1) for part in response.headers["Content-Security-Policy"].split(";"))
+        assert policy["img-src"].split() == ["'self'", "data:"]
+        assert policy["script-src"] == "'self'"
+        assert policy["style-src"] == "'self'"
+        assert policy["connect-src"] == "'self'"
+        assert 'data-brand-favicon' in response.text

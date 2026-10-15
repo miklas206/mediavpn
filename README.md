@@ -141,3 +141,7 @@ Managed MediaHub Overview reads `GET /api/hub/overview` with a short-lived, pack
 ## Resource limits (0.2.15)
 
 Recreated MediaSeed torrent clients inherit the approved source container RAM, swap, CPU quota/NanoCPU and CPU affinity. MediaHub uses the `org.mediahub.resources.client-limits=1` image capability to enable persistent app resource editing. No tunnel or running client is changed merely by upgrading Core; this app remains independently updated.
+
+### Theme-colored tab icon (0.2.16)
+
+The image Content Security Policy permits the generated SVG data favicon, so local theme choices and inherited MediaHub appearance update the browser tab icon. Script, style and connection policies remain same-origin only. Applies on fresh installs and ordinary app updates without configuration or database changes.

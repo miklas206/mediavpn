@@ -282,7 +282,7 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
             except ValueError:
                 return Response(status_code=400)
         response = await call_next(request)
-        response.headers.update({"X-Content-Type-Options": "nosniff", "X-Frame-Options": "DENY", "Referrer-Policy": "no-referrer", "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; frame-ancestors 'none'"})
+        response.headers.update({"X-Content-Type-Options": "nosniff", "X-Frame-Options": "DENY", "Referrer-Policy": "no-referrer", "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'"})
         if request.url.path.startswith("/api"):
             response.headers["Cache-Control"] = "no-store"
         return response
@@ -312,7 +312,7 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
 
     @app.get("/healthz")
     def health():
-        return {"status": "healthy", "version": "0.2.15"}
+        return {"status": "healthy", "version": "0.2.16"}
 
     @app.get("/api/runtime")
     def runtime_status(session=Depends(authorized)):
