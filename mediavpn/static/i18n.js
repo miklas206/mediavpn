@@ -1,6 +1,7 @@
 // Account language; English source keys and Danish translations.
 (() => {
 const messages = {
+  "MediaVPN 0.2.14": "MediaVPN 0.2.14",
   "The server returned an invalid API response for {0} (HTTP {1}). Please try again.": "Serveren returnerede et ugyldigt API-svar fra {0} (HTTP {1}). Pr\u00f8v igen.",
   "Cloudflare": "Cloudflare",
   "Appearance": "Udseende",
