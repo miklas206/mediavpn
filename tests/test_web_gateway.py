@@ -548,9 +548,10 @@ def test_web_guard_and_upstream_routes_do_not_add_provider_sessions(tmp_path):
         docker.created[0]["environment"]["FIREWALL_OUTBOUND_SUBNETS"]
         == "192.168.1.51/32,192.168.1.52/32"
     )
-    with pytest.raises(HTTPException):
-        runtime.start("b" * 24)
-    assert len(docker.created) == 1
+    runtime.start("b" * 24)
+    assert len(docker.created) == 2
+    assert "ports" not in docker.created[1]
+    assert docker.created[1]["environment"]["FIREWALL_OUTBOUND_SUBNETS"] == ""
     docker.run(
         "sha256:gateway",
         name="helper",

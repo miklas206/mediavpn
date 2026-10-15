@@ -281,6 +281,10 @@ async function refreshSharedApps(profiles) {
     target.append(controls, node('p', t(data.gateway.ready ? 'Shared VPN verified' : 'Shared VPN not verified')));
     if (data.gateway.message) target.append(node('p', t(data.gateway.message), 'muted'));
     for (const app of data.apps) {
+      if (app.id === "mediaseed") {
+        target.append(node("p", t("Select MediaSeed's VPN profile in MediaSeed. It can use a different profile from Plex and this gateway."), "muted"));
+        continue;
+      }
       const label = node('label'); const toggle = node('input'); toggle.type = 'checkbox';
       toggle.checked = app.enabled === true;
       toggle.disabled = app.enabled === null || (!app.enabled && !data.gateway.ready);

@@ -90,6 +90,10 @@ globalThis.MediaVPNGateway = (() => {
     const details = disclosure('apps', 'Apps using this VPN for internet access');
     details.append(element('p', t('Web domains and outbound app traffic share the selected Proton connection. Apps selected here remain blocked if that connection fails.'), 'muted'));
     for (const app of shared.apps || []) {
+      if (app.id === "mediaseed") {
+        details.append(element("p", t("Select MediaSeed's VPN profile in MediaSeed. It can use a different profile from Plex and this gateway."), "muted"));
+        continue;
+      }
       const toggle = element('input'); toggle.type = 'checkbox'; toggle.dataset.app = app.id; toggle.checked = app.enabled === true;
       toggle.disabled = saving || app.enabled === null || (!app.enabled && !shared.gateway?.ready);
       toggle.onchange = async () => {
@@ -172,7 +176,7 @@ globalThis.MediaVPNGateway = (() => {
       const selected = profiles.find(profile => profile.id === draft.profileId);
       panel.append(element('p', t(selected?.port_forwarding ? 'NAT-PMP is enabled for this profile.' : 'Choose a profile uploaded with Proton NAT-PMP enabled.'), 'muted'));
       panel.append(button('Upload Proton configuration', async () => document.querySelector('#profile-dialog').showModal()));
-      panel.append(element('p', t('Keep the server from your Proton configuration initially. Other VPN profiles are stopped when the shared gateway starts.'), 'muted'));
+      panel.append(element('p', t('Keep the server from your Proton configuration initially. MediaSeed can use a separate active VPN profile selected in MediaSeed.'), 'muted'));
     } else if (displayStep === 2) {
       panel.append(element('p', t(data.configured ? 'Cloudflare is connected. Select your app domains in the next step.' : 'Connect your Cloudflare account once. Your token is stored privately and is never shown again.'), 'muted'));
       if (data.configured && !editingCredentials) {

@@ -167,3 +167,28 @@ Fresh installations and existing configuration use the same additive capability;
 
 
 The dedicated machine-authenticated GET/PUT `/api/integration/queue` accepts only an integer `maxActiveDownloads` from 1–100. It keeps queueing enabled and does not expose arbitrary native preferences. The desired value is saved atomically with existing Seedbox settings and verified against the client. Reconciliation uses the saved value (default eight for older installations); profile changes, tunnel recreation and app restarts retain it. Failed verification is reported, and the saved desired value can converge on the next verified reconciliation. File checking keeps its separate native limit.
+
+
+### Concurrent VPN profiles (0.2.24)
+
+MediaVPN can keep multiple provider profiles active. Select and start a dedicated
+profile in MediaSeed's VPN view, and select another profile for the shared app
+relay used by Plex in MediaVPN. Each imported configuration needs its own
+WireGuard private key; duplicate keys remain rejected. The shared app/web relay
+still selects one profile for its attached apps; this release does not add
+multiple independent shared relays.
+
+Starting or saving the shared/web gateway no longer disables other profiles or
+changes MediaSeed's selected profile. Only the selected relay provider publishes
+the private LAN relay port and receives the web gateway's LAN firewall exceptions.
+MediaSeed on another profile uses that provider's own verified forwarded port.
+Provider failures and dependent shutdown are scoped to their selected profile.
+
+Fresh installations and upgrades use the existing profile database, desired-state
+flags and settings files. No new packages, mounts or schema migration are needed.
+Existing shared setups remain shared until the user selects a different MediaSeed
+profile. Existing keys, queue/RSS settings and torrent volumes are preserved.
+Synthetic tests cover concurrent providers, saved-state reopen, shared-to-dedicated
+selection, gateway port handoff, scoped replacement/stop and supervisor failure
+isolation. Real provider egress, port forwarding and Plex access require live
+verification after the user installs the update.

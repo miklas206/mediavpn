@@ -36,7 +36,7 @@ def test_peers_keep_provider_key_private_and_survive_restart(tmp_path):
     assert second.public()["peers"] == []
 
 
-def test_shared_profile_prevents_second_provider_connection(tmp_path):
+def test_shared_profile_and_independent_provider_have_isolated_ports(tmp_path):
     calls = []
     client = SimpleNamespace(
         containers=SimpleNamespace(
@@ -46,13 +46,14 @@ def test_shared_profile_prevents_second_provider_connection(tmp_path):
     runtime = Runtime(tmp_path, True, "/approved", client)
     runtime.shared_profile = lambda: "one"
     runtime.shared_endpoint = lambda: ("192.168.1.50", 18804)
-    with pytest.raises(HTTPException):
-        runtime.start("two")
-    assert not calls
+    runtime.start("two")
+    assert "ports" not in calls[0]
+    assert calls[0]["environment"]["FIREWALL_INPUT_PORTS"] == ""
+    assert calls[0]["environment"]["FIREWALL_OUTBOUND_SUBNETS"] == ""
     runtime.start("one")
-    assert len(calls) == 1
-    assert calls[0]["ports"] == {"51879/udp": ("192.168.1.50", 18804)}
-    assert calls[0]["environment"]["FIREWALL_INPUT_PORTS"] == "51879"
+    assert len(calls) == 2
+    assert calls[1]["ports"] == {"51879/udp": ("192.168.1.50", 18804)}
+    assert calls[1]["environment"]["FIREWALL_INPUT_PORTS"] == "51879"
 
 
 def test_relay_has_no_physical_default_allow_or_ipv6_fallback():

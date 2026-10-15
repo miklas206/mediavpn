@@ -30,7 +30,6 @@ from mediavpn.proton import ProtonSelectionError, ProtonSelector, selected_confi
 from mediavpn.runtime import Runtime
 from mediavpn.seedbox import Seedbox
 from mediavpn.shared_gateway import SharedGateway
-from mediavpn.shared_gateway import save as save_private
 from mediavpn.web_gateway import WebGateway, WebSettings, public_routes
 
 STATIC = Path(__file__).parent / "static"
@@ -181,31 +180,41 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
             while not stopping.is_set():
                 wakeup.clear()
                 try:
+                    failed_profiles = set()
                     with lock, database() as connection:
-                        if shared.profile():
-                            for other in connection.execute("SELECT id FROM profiles WHERE id != ?", (shared.profile(),)):
-                                candidate = runtime.container(other["id"])
-                                if candidate:
-                                    candidate.reload()
-                                    if candidate.attrs.get("State", {}).get("Running"):
-                                        runtime.stop(other["id"])
                         desired = connection.execute("SELECT id,port_forwarding,auto_country FROM profiles WHERE desired=1").fetchall()
                         for profile in desired:
-                            with cause("supervisor", "desired_profile_reconcile"):
-                                start_profile(profile)
-                                value = runtime.status(profile["id"])
-                                observation = {key: value.get(key) for key in ("state", "healthy", "publicIp", "forwardedPort")}
-                                if observations.get(profile["id"]) != observation:
-                                    previous = observations.get(profile["id"], {})
-                                    diagnostics.record("provider.observed", profile=profile["id"], reason="provider_state_changed",
-                                                       health=value.get("state"), publicIp=value.get("publicIp"), port=value.get("forwardedPort"),
-                                                       previousPublicIp=previous.get("publicIp"), previousPort=previous.get("forwardedPort"))
-                                    observations[profile["id"]] = observation
-                    web.reconcile()
-                    if stopping.is_set():
-                        break
-                    seedbox.reconcile()
-                    shared.reconcile()
+                            try:
+                                with cause("supervisor", "desired_profile_reconcile"):
+                                    start_profile(profile)
+                                    value = runtime.status(profile["id"])
+                                    observation = {key: value.get(key) for key in ("state", "healthy", "publicIp", "forwardedPort")}
+                                    if observations.get(profile["id"]) != observation:
+                                        previous = observations.get(profile["id"], {})
+                                        diagnostics.record("provider.observed", profile=profile["id"], reason="provider_state_changed",
+                                                           health=value.get("state"), publicIp=value.get("publicIp"), port=value.get("forwardedPort"),
+                                                           previousPublicIp=previous.get("publicIp"), previousPort=previous.get("forwardedPort"))
+                                        observations[profile["id"]] = observation
+                            except Exception as error:
+                                failed_profiles.add(profile["id"])
+                                diagnostics.record("supervisor.profile_error", profile=profile["id"], reason="dependent_safety_stop", **error_fields(error))
+                                try:
+                                    stop_attached(profile["id"])
+                                except Exception as stop_error:
+                                    diagnostics.record("supervisor.stop_error", profile=profile["id"], **error_fields(stop_error))
+                    for dependent, stop in ((web, web.stop), (seedbox, seedbox.stop), (shared, shared.stop_helper)):
+                        if stopping.is_set():
+                            break
+                        if dependent.settings().get("profileId") in failed_profiles:
+                            continue
+                        try:
+                            dependent.reconcile()
+                        except Exception as error:
+                            diagnostics.record("supervisor.dependent_error", reason=type(dependent).__name__, **error_fields(error))
+                            try:
+                                stop()
+                            except Exception as stop_error:
+                                diagnostics.record("supervisor.stop_error", reason=type(dependent).__name__, **error_fields(stop_error))
                 except Exception as error:
                     diagnostics.record("supervisor.error", origin="supervisor", reason="dependent_safety_stop", **error_fields(error))
                     try:
@@ -312,7 +321,7 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
 
     @app.get("/healthz")
     def health():
-        return {"status": "healthy", "version": "0.2.23"}
+        return {"status": "healthy", "version": "0.2.24"}
 
     @app.get("/api/runtime")
     def runtime_status(session=Depends(authorized)):
@@ -396,14 +405,9 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
                     target = ipaddress.ip_address(urlsplit(row["upstream"]).hostname)
                     if target in overlay or target in ipaddress.ip_network("10.2.0.0/24"):
                         raise HTTPException(409, "An app origin overlaps the provider or private relay network")
-                current = seedbox.settings()
-                if current["enabled"] and current["profileId"] != body.profileId:
-                    seedbox.stop()
-                    save_private(seedbox.path, {"enabled": True, "profileId": body.profileId})
-                shared.configure(body.profileId, True)
+                select_shared_profile(body.profileId)
                 web.configure(body)
                 with database() as connection:
-                    connection.execute("UPDATE profiles SET desired=0 WHERE id != ?", (body.profileId,))
                     connection.execute("UPDATE profiles SET desired=1,port_forwarding=1 WHERE id=?", (body.profileId,))
             else:
                 # Stop only inbound helpers; outgoing selected apps and their tunnel
@@ -416,6 +420,18 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
                 "routes": public_routes(routes), "plex": body.plex.model_dump() if body.plex and body.enabled else None,
                 "checkedAt": time.time()}
 
+    def select_shared_profile(identifier):
+        previous = shared.profile()
+        shared.configure(identifier, True)
+        if previous and previous != identifier:
+            # Release the relay's LAN port before the new provider binds it.
+            # Preserve an independently desired old provider and its consumers.
+            old = find(previous)
+            if old["desired"]:
+                start_profile(old)
+            else:
+                runtime.stop(previous, remove=True)
+
     def configure_shared(body):
         diagnostics.record("request.shared_gateway", enabled=body.enabled, profile=body.profileId)
         with lock, seedbox.lock:
@@ -427,16 +443,8 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
                 overlay = ipaddress.ip_network("10.250.87.0/24")
                 if any(ipaddress.ip_interface(address).version == 4 and ipaddress.ip_interface(address).network.overlaps(overlay) for address in metadata["addresses"]):
                     raise HTTPException(409, "The VPN profile address overlaps the private app relay network")
-                current = seedbox.settings()
-                if current["enabled"] and current["profileId"] != body.profileId:
-                    raise HTTPException(409, "Select the same profile for MediaSeed before sharing the VPN")
-                with database() as connection:
-                    others = connection.execute("SELECT id FROM profiles WHERE id != ?", (body.profileId,)).fetchall()
-                    connection.execute("UPDATE profiles SET desired=0 WHERE id != ?", (body.profileId,))
-                for row in others:
-                    runtime.stop(row["id"])
                 stop_attached(body.profileId)
-                shared.configure(body.profileId, True)
+                select_shared_profile(body.profileId)
                 with database() as connection:
                     connection.execute("UPDATE profiles SET desired=1 WHERE id=?", (body.profileId,))
                 start_profile(selected)
@@ -508,8 +516,6 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
     def configure_seedbox(body):
         diagnostics.record("request.torrent_settings", enabled=body.enabled, profile=body.profileId)
         if body.enabled:
-            if shared.profile() and shared.profile() != body.profileId:
-                raise HTTPException(409, "MediaSeed must use the selected shared VPN profile")
             profile = find(body.profileId)
             if not profile["port_forwarding"]:
                 raise HTTPException(409, "Aktiver Proton port-forwarding paa profilen foerst")

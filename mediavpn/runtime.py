@@ -123,12 +123,10 @@ class Runtime:
         return data
 
     def start(self, identifier, port_forwarding=False, auto_country=None):
-        shared = self.shared_profile()
-        if shared and identifier != shared:
-            raise HTTPException(409, "Only the selected shared VPN profile may connect")
+        shared = self.shared_profile() == identifier
         endpoint = self.shared_endpoint() if shared else None
         marker = str(endpoint) if endpoint else ""
-        targets = ",".join(self.web_targets())
+        targets = ",".join(self.web_targets()) if shared else ""
         try:
             container = self.container(identifier)
             mode = auto_country or ""
@@ -155,8 +153,8 @@ class Runtime:
                                         }.items() if not matches))
                 self.stop_dependents(identifier)
                 container.stop(timeout=10)
-                self.stop_web()
                 if shared:
+                    self.stop_web()
                     self.stop_shared()
                 container.remove()
             filename = f"{identifier}.conf"
