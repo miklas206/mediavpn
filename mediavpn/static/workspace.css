@@ -81,9 +81,9 @@ dialog::backdrop { backdrop-filter: blur(7px); }
 }
 
 /* Compact VPN workspace; shared status stays outside the three panels. */
-.vpn-tabs { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:6px; padding:6px; margin:0 0 20px; border:1px solid var(--line); border-radius:12px; background:var(--surface); }
-.vpn-tabs button { border-color:transparent; background:transparent; min-width:0; padding:10px 8px; }
-.vpn-tabs button[aria-selected="true"] { color:var(--accent); background:var(--accent-bg); border-color:var(--accent-line,var(--line)); }
+.vpn-tabs:not(.app-navigation) { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:6px; padding:6px; margin:0 0 20px; border:1px solid var(--line); border-radius:12px; background:var(--surface); }
+.vpn-tabs:not(.app-navigation) button { border-color:transparent; background:transparent; min-width:0; padding:10px 8px; }
+.vpn-tabs:not(.app-navigation) button[aria-selected="true"] { color:var(--accent); background:var(--accent-bg); border-color:var(--accent-line,var(--line)); }
 [role="tabpanel"] { min-width:0; }
 #panel-apps .gateway-wizard, #panel-cloudflare .gateway-wizard { margin-top:0; }
 #profiles { grid-template-columns:1fr; gap:12px; }
@@ -102,4 +102,4 @@ dialog::backdrop { backdrop-filter: blur(7px); }
 .plex-port-card label { display:flex; gap:10px; align-items:center; }
 .plex-port-card p { font-size:13px; }
 #runtime-state { padding:8px 12px; margin-bottom:14px; flex-wrap:wrap; }
-@media(max-width:540px) { .vpn-tabs { gap:2px; padding:4px; } .vpn-tabs button { font-size:12px; padding:8px 4px; } .profile { padding:16px; } .compact-route { align-items:flex-start; flex-direction:column; gap:4px; } .compact-route > span { text-align:left; } }
+@media(max-width:540px) { .vpn-tabs:not(.app-navigation) { gap:2px; padding:4px; } .vpn-tabs:not(.app-navigation) button { font-size:12px; padding:8px 4px; } .profile { padding:16px; } .compact-route { align-items:flex-start; flex-direction:column; gap:4px; } .compact-route > span { text-align:left; } }

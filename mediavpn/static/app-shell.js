@@ -16,7 +16,7 @@
     apps:'<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
     cloudflare:'<path d="M6 18a4 4 0 0 1-1-8 7 7 0 0 1 13 1 3.5 3.5 0 0 1 0 7Z"/>'
   };
-  const icon = path => {const holder=document.createElement('span');holder.className='app-nav-icon';holder.setAttribute('aria-hidden','true');holder.innerHTML=`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${path}</svg>`;return holder;};
+  const icon = path => {const holder=document.createElement('span');holder.className='app-nav-icon';holder.setAttribute('aria-hidden','true');holder.innerHTML=`<svg class="lucide" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${path}</svg>`;return holder;};
   for(const button of nav.querySelectorAll('button')) {
     const label=document.createElement('span');label.className='app-nav-label';while(button.firstChild)label.append(button.firstChild);
     button.append(icon(paths[button.dataset.view||button.dataset.vpnTab]||paths.apps),label);

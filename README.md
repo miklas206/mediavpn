@@ -192,3 +192,17 @@ Synthetic tests cover concurrent providers, saved-state reopen, shared-to-dedica
 selection, gateway port handoff, scoped replacement/stop and supervisor failure
 isolation. Real provider egress, port forwarding and Plex access require live
 verification after the user installs the update.
+
+
+### Navigation follows MediaHub
+
+The app shell uses MediaHub's theme-dependent dock and top-navigation geometry,
+active colors, icon framing and stroke weight. Edge Signal decorations only apply
+to Edge Signal. Legacy app tabs no longer override the shared navigation. Managed
+accounts inherit MediaHub appearance and navigation; explicit per-app overrides
+remain available, with Follow MediaHub restoring inheritance. Updated CSS/JS URLs
+invalidate old cached shell assets on upgrade; no settings migration is needed.
+
+Local isolated-browser verification compares computed dock/topbar styles with
+MediaHub's actual frontend CSS for five looks, and checks all five navigation
+layouts at 320, 1440 and 3840 pixels. No live deployment is implied.
