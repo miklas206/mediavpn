@@ -36,7 +36,7 @@ def install_auth(app, database, base, hub_transport=None):
             raise HTTPException(401, "Log ind for at fortsaette")
         with database() as connection:
             account = connection.execute("SELECT language FROM accounts LIMIT 1").fetchone()
-        public = await hub.identity(digest) if hub.enabled else {"role": "administrator", "language": account[0] if account else "en"}
+        public = await hub.identity(digest, fresh=request.method not in {"GET", "HEAD"}) if hub.enabled else {"role": "administrator", "language": account[0] if account else "en"}
         if request.method not in {"GET", "HEAD"} and request.url.path not in {"/api/auth/logout", "/api/auth/preferences", "/api/auth/navigation"} and public["role"] != "administrator":
             raise HTTPException(403, "App administrator access required")
         if request.method not in {"GET", "HEAD"} and not secrets.compare_digest(request.headers.get("X-MediaVPN-CSRF", ""), session["csrf"]):

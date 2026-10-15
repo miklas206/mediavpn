@@ -39,7 +39,10 @@ try:
     if destination:
         target=pathlib.Path(destination)
         if target.resolve()!=target:raise ValueError('Download directory contains symlinks')
-    if body['path']=='rss/torrent':
+    if body['path']=='mediaseed/status':
+        values={path:send(path+query) for path,query in [('app/preferences',''),('torrents/info','?limit=500'),('transfer/info',''),('app/version','')]}
+        result={'status':200,'body':base64.b64encode(json.dumps(values).encode()).decode()}
+    elif body['path']=='rss/torrent':
         class NoRedirect(urllib.request.HTTPRedirectHandler):
             def redirect_request(self,*args):return None
         fetcher=urllib.request.build_opener(urllib.request.ProxyHandler({}),NoRedirect())
@@ -94,6 +97,8 @@ class Seedbox:
         self.data = Path(data)
         self.path = self.data / "seedbox.json"
         self.lock = threading.RLock()
+        self.read_cache = {}
+        self.status_snapshot = None
         self.error = None
         self.web_gateway = None
         self.seed_project = os.environ.get("MEDIAVPN_MEDIASEED_PROJECT", "mediaseed-preview")
@@ -129,6 +134,8 @@ class Seedbox:
         return value
 
     def configure(self, profile_id, enabled):
+        self.status_snapshot = None
+        self.read_cache.clear()
         if enabled and not re.fullmatch(r"[a-f0-9]{24}", profile_id or ""):
             raise HTTPException(422, "Vaelg en VPN-profil")
         with self.lock:
@@ -208,6 +215,8 @@ class Seedbox:
             return {"maxActiveDownloads": applied, "queueingEnabled": True}
 
     def stop(self, remove=False):
+        self.status_snapshot = None
+        self.read_cache.clear()
         child = self.child()
         if child:
             child.reload()
@@ -355,7 +364,36 @@ class Seedbox:
             resource_options["cpuset_cpus"] = host["CpusetCpus"]
         client.containers.create(source.attrs["Image"], name=CLIENT_NAME, environment={"PUID": "1000", "PGID": "1000", "WEBUI_PORT": "8080", "TZ": "Europe/Copenhagen"}, volumes=volumes, network_mode="container:" + vpn.id, labels={CLIENT_OWNER: "mediaseed", "org.mediahub.mediavpn.generation": generation}, **resource_options, restart_policy={"Name": "no"}, security_opt=["no-new-privileges:true"], log_config={"Type": "json-file", "Config": {"max-size": "5m", "max-file": "2"}})
 
-    def status(self):
+    def display_status(self):
+        """Display-only observation; never used to authorize a mutation."""
+        sample = self.status_snapshot
+        if sample and time.monotonic() - sample[0] < 10:
+            return dict(sample[1])
+        return {**self.settings(), "ready": False, "downloadsEnabled": False, "vpn": "unverified", "publicIp": None, "forwardedPort": None, "country": None, "checkedAt": None, "reason": "Afventer en ny VPN-status", "stale": True}
+
+    def refresh_snapshot(self):
+        with self.lock:
+            observed = self.status(verify_client=False)
+            if observed['ready']:
+                try:
+                    response = self.execute(self.child(), 'mediaseed/status', 'GET', {})
+                    samples = json.loads(base64.b64decode(response['body']))
+                    preferences = json.loads(base64.b64decode(samples['app/preferences']['body']))
+                    verified = preferences.get('current_network_interface') == 'tun0' and preferences.get('listen_port') == observed['internalPort'] and not preferences.get('upnp')
+                    if observed['internalPort'] != observed['forwardedPort']:
+                        verified = verified and preferences.get('announce_port') == observed['forwardedPort']
+                    if not verified:
+                        raise ValueError('Client binding unavailable')
+                    now = time.monotonic()
+                    for path, value in samples.items():
+                        payload = {'limit': 500} if path == 'torrents/info' else {}
+                        self.read_cache[(path, json.dumps(payload, sort_keys=True))] = (now, value)
+                except Exception:
+                    self.read_cache.clear()
+                    observed = {**observed, 'ready': False, 'downloadsEnabled': False, 'vpn': 'unverified', 'reason': 'Torrent client status unavailable'}
+            self.status_snapshot = (time.monotonic(), observed)
+
+    def status(self, verify_client=True):
         with self.lock:
             settings = self.settings()
             observed = self.observed(settings["profileId"]) if settings["enabled"] else {"healthy": False, "forwardedPort": None, "publicIp": None}
@@ -369,7 +407,7 @@ class Seedbox:
                     generation = self.generation(vpn, observed)
                     running = child.attrs.get("State", {}).get("Running", False) and child.labels.get("org.mediahub.mediavpn.generation") == generation
             ready = bool(settings["enabled"] and observed["healthy"] and observed["forwardedPort"] and running and not self.error)
-            if ready:
+            if ready and verify_client:
                 try:
                     response = self.execute(child, "app/preferences", "GET", {})
                     preferences = json.loads(base64.b64decode(response["body"]))
@@ -488,9 +526,23 @@ class Seedbox:
                 except (ValueError, TypeError):
                     raise HTTPException(422, "Invalid seeding policy") from None
         with self.lock:
-            self.reconcile()
-            if not self.status()["ready"]:
+            if method != "GET":
+                self.read_cache.clear()
+                self.status_snapshot = None
+                self.reconcile()
+            # Reads inspect the current namespace/health, but never reconcile it.
+            # Writes always recheck client binding and preferences.
+            if not (self.status(verify_client=False) if method == "GET" and path != "rss/torrent" else self.status())["ready"]:
                 raise HTTPException(409, "VPN is not verified; torrent operation blocked")
             if path == "torrents/delete" and payload.get("deleteFiles", "false") not in {"false", "true"}:
                 raise HTTPException(422, "Choose whether download files should be deleted")
-            return self.execute(self.child(), path, method, payload, content)
+            key = (path, json.dumps(payload, sort_keys=True))
+            cached = self.read_cache.get(key) if method == "GET" else None
+            if cached and time.monotonic() - cached[0] < 7:
+                return dict(cached[1])
+            result = self.execute(self.child(), path, method, payload, content)
+            if method == "GET" and path != "rss/torrent":
+                if len(self.read_cache) >= 64:
+                    self.read_cache.clear()
+                self.read_cache[key] = (time.monotonic(), result)
+            return result

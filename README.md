@@ -1,5 +1,13 @@
 # MediaVPN
 
+## 0.2.28 — status reads and connection workflows
+
+Connection creation is split into configuration, usage and review. Apps can be selected during creation or later on their connection card. The review explicitly distinguishes saving a stopped connection from starting one for selected apps. Existing assignments require confirmation before a move. Gateway setup is accessible from each profile and keeps the existing Traefik/Cloudflare guide and selected-profile configuration.
+
+The supervisor batches preferences, torrent list, transfer and version observations in one client operation. Ordinary reads do not reconcile containers; a bounded seven-second read cache still checks current namespace health. Mutations invalidate observations and revalidate client binding/preferences. Display snapshots expire after ten seconds into an unverified state. Concurrent Hub identity reads coalesce only while in flight; mutations and logout receive fresh checks.
+
+Profile cards render independently of Hub app assignments. Temporary assignment failures disable that portion rather than hiding the connection list. Existing profiles, keys, app bindings and gateway settings are unchanged on upgrade. No additional runtime privileges or packages are required. Verification is local and synthetic, without starting live tunnels.
+
 mediavpn 0.2.23 preserves keyboard focus and open row menus during automatic refresh. Profile detail disclosures retain their state when old DOM nodes are detached.
 
 MediaVPN 0.2.22 matches the supplied MediaHub dock reference: thin accent frame and top edge, accent rail beside each icon, muted inactive labels and a bordered selected button. App-specific destinations and navigation inheritance remain.

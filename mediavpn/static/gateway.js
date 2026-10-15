@@ -3,6 +3,7 @@ globalThis.MediaVPNGateway = (() => {
   const t = (...args) => globalThis.MediaAppI18n.t(...args);
   let data, shared, profiles = [], step = 0, initialized = false, saving = false, editingCredentials = false, tab = "connection", editingSetup = false, refreshing = false;
   let lastRefreshError = '';
+  let requestedProfile = null;
   let draft = {profileId: '', accountId: '', token: '', routes: []};
   const canActivate = () => !saving && !data?.busy && data?.configured && profiles.some(profile => profile.id === draft.profileId && profile.port_forwarding)
     && draft.routes.length > 0 && draft.routes.every(route => route.packageId && route.zoneId && route.label.trim())
@@ -252,6 +253,7 @@ globalThis.MediaVPNGateway = (() => {
         draft.routes = draft.routes.filter(route => !route.packageId || installed.has(route.packageId));
       }
       if (!draft.profileId && profiles.length === 1) draft.profileId = profiles[0].id;
+      if (requestedProfile) { draft.profileId=requestedProfile;requestedProfile=null;editingSetup=true;step=0; }
       document.querySelector('#shared-apps')?.remove();
       render(!force);
     } catch (error) {
@@ -259,5 +261,5 @@ globalThis.MediaVPNGateway = (() => {
       if (!data) render();
     } finally { refreshing = false; }
   }
-  return {refresh, setTab(value) { tab = value; if (data) render(); }};
+  return {refresh, openProfile(id) {requestedProfile=id;editingSetup=true;step=0;if(data){draft.profileId=id;requestedProfile=null;render();}}, setTab(value) { tab = value; if (data) render(); }};
 })();

@@ -7,6 +7,8 @@ import ssl
 import time
 from urllib.parse import urlencode, urlsplit
 
+from mediavpn.http_pool import HttpPool
+
 import httpx
 from fastapi import HTTPException, Query, Request
 from fastapi.responses import RedirectResponse
@@ -21,6 +23,7 @@ class HubLogin:
         self.browser_hub = os.environ.get("MEDIAVPN_HUB_BROWSER_URL", self.hub).rstrip("/")
         self.enabled = bool(self.hub)
         self.transport = transport
+        self.pool = None
         self.verify = True
         if not self.enabled:
             return
@@ -31,6 +34,7 @@ class HubLogin:
         ca = os.environ.get("MEDIAVPN_HUB_CA_FILE")
         if ca:
             self.verify = ssl.create_default_context(cafile=ca)
+        self.pool = HttpPool(base_url=self.hub, verify=self.verify, timeout=5, follow_redirects=False, trust_env=False, transport=self.transport)
         with database() as db:
             db.executescript("""
                 CREATE TABLE IF NOT EXISTS hub_attempts (digest TEXT PRIMARY KEY, verifier TEXT NOT NULL, expires REAL NOT NULL);
@@ -91,18 +95,17 @@ class HubLogin:
             raise HTTPException(503, "Invalid MediaHub app origin")
         return value
 
-    async def request(self, path, method="GET", payload=None, token=None, timeout=5):
+    async def request(self, path, method="GET", payload=None, token=None, timeout=5, coalesce=False):
         try:
-            async with httpx.AsyncClient(base_url=self.hub, verify=self.verify, timeout=timeout, follow_redirects=False, trust_env=False, transport=self.transport) as client:
-                response = await client.request(method, "/api/v1/sso/" + path, json=payload, headers={"Authorization": "Bearer " + token} if token else {})
-                if response.status_code in {401, 403}:
-                    raise HTTPException(response.status_code, "MediaHub access denied")
-                if path.startswith("vpn-gateway") and response.status_code in {400, 409, 422, 429}:
-                    detail = response.json().get("error", {}).get("message")
-                    if isinstance(detail, str) and 0 < len(detail) <= 500:
-                        raise HTTPException(response.status_code, detail)
-                response.raise_for_status()
-                return response.json()["data"]
+            response = await self.pool.request(method, "/api/v1/sso/" + path, coalesce=coalesce, json=payload, headers={"Authorization": "Bearer " + token} if token else {}, timeout=timeout)
+            if response.status_code in {401, 403}:
+                raise HTTPException(response.status_code, "MediaHub access denied")
+            if path.startswith("vpn-gateway") and response.status_code in {400, 409, 422, 429}:
+                detail = response.json().get("error", {}).get("message")
+                if isinstance(detail, str) and 0 < len(detail) <= 500:
+                    raise HTTPException(response.status_code, detail)
+            response.raise_for_status()
+            return response.json()["data"]
         except (httpx.HTTPError, ValueError, KeyError, TypeError):
             raise HTTPException(503, "MediaHub authentication unavailable") from None
 
@@ -115,12 +118,12 @@ class HubLogin:
             raise HTTPException(401, "Sign in through MediaHub")
         return await self.request("vpn/" + path, method, payload, managed["token"], timeout=180)
 
-    async def identity(self, digest):
+    async def identity(self, digest, fresh=False):
         with self.database() as db:
             managed = db.execute("SELECT * FROM hub_sessions WHERE digest=?", (digest,)).fetchone()
         if not managed:
             raise HTTPException(401, "Sign in through MediaHub")
-        public = await self.request("session?packageId=" + PACKAGE, token=managed["token"])
+        public = await self.request("session?packageId=" + PACKAGE, token=managed["token"], coalesce=not fresh)
         if public.get("id") != managed["user_id"] or public.get("role") not in {"administrator", "user", "viewer"}:
             raise HTTPException(403, "MediaHub access denied")
         return public

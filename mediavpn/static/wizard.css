@@ -1,0 +1,20 @@
+dialog.guided-dialog { padding:0!important; width:min(960px,calc(100vw - 24px))!important; max-height:92dvh; overflow:hidden; }
+.guided-dialog > .heading { position:static!important; padding:20px 24px!important; margin:0!important; border-bottom:1px solid var(--line); }
+.guided-dialog .workspace-card { padding:0; border:0; background:transparent; }
+.guided-dialog .workspace-card > h2 { margin:0; padding:20px 24px; border-bottom:1px solid var(--line); }
+.guided-dialog .source-editor-close { position:absolute; right:16px; top:12px; z-index:5; }
+form.guided-form { display:flex!important; flex-direction:column; align-items:stretch!important; gap:0!important; max-height:calc(92dvh - 85px); margin:0; min-height:0; }
+.wizard-progress { margin:0; padding:12px 24px; color:var(--accent); font-size:13px!important; border-bottom:1px solid var(--line); }
+.wizard-body { padding:20px 24px; overflow:auto; min-height:0; overscroll-behavior:contain; }
+.wizard-step { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:20px; align-items:start; }
+.wizard-step[hidden], .wizard-footer [hidden] { display:none!important; }
+.wizard-step > * { min-width:0; }
+.wizard-step > fieldset, .wizard-step > p { grid-column:1/-1; }
+.wizard-step > .download-location { grid-column:auto; }
+.wizard-step > section:only-child { grid-column:1/-1; }
+.wizard-step .add-ratio-summary { margin:0!important; padding:18px; border:1px solid var(--accent-line,var(--line)); border-radius:12px; background:var(--accent-soft,var(--surface)); }
+.wizard-step .add-settings-column { display:grid; gap:18px; }
+.wizard-step #torrent-file-list { max-height:none; overflow:visible; }
+form.guided-form .wizard-footer { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:10px; position:static!important; margin:0!important; padding:16px 24px!important; border-top:1px solid var(--line); background:var(--surface); }
+.wizard-back { margin-right:auto; }
+@media(max-width:650px) { .wizard-step { grid-template-columns:minmax(0,1fr); } .wizard-body { padding:16px; } .guided-dialog > .heading { padding:16px!important; } }

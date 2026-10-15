@@ -213,6 +213,8 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
                             continue
                         try:
                             dependent.reconcile()
+                            if dependent is seedbox:
+                                seedbox.refresh_snapshot()
                         except Exception as error:
                             diagnostics.record("supervisor.dependent_error", reason=type(dependent).__name__, **error_fields(error))
                             try:
@@ -244,6 +246,8 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
         if worker:
             worker.start()
         yield
+        if app.state.hub_login.pool is not None:
+            await app.state.hub_login.pool.close()
         stopping.set()
         wakeup.set()
         observer_stream = observer.stream if observer else None
@@ -333,12 +337,13 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
 
     @app.get("/healthz")
     def health():
-        return {"status": "healthy", "version": "0.2.27"}
+        return {"status": "healthy", "version": "0.2.28"}
 
     @app.get("/api/runtime")
     def runtime_status(session=Depends(authorized)):
-        state = seedbox.status()
-        return {"enabled": runtime.enabled, "mode": "docker" if runtime.enabled else "preview", "relayEnabled": shared.public()["ready"], "mediaSeedConnected": state["ready"], "seedbox": state, "shared": shared.public()}
+        state = seedbox.display_status()
+        shared_state = shared.public()
+        return {"enabled": runtime.enabled, "mode": "docker" if runtime.enabled else "preview", "relayEnabled": shared_state["ready"], "mediaSeedConnected": state["ready"], "seedbox": state, "shared": shared_state}
 
     def shared_overview():
         with database() as connection:
@@ -537,7 +542,7 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
         return {"removed": True}
 
     def seedbox_overview():
-        state = seedbox.status()
+        state = seedbox.display_status()
         with database() as connection:
             profiles = connection.execute("SELECT id,name,port_forwarding FROM profiles ORDER BY name").fetchall()
         return {**state, "torrentCapabilities": ["recheck", "queue-settings", "rss-settings"], "profiles": [{**dict(profile), **runtime.status(profile["id"])} for profile in profiles]}
@@ -560,7 +565,7 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
         def snapshot():
             with database() as connection:
                 rows = connection.execute("SELECT id,name,auto_country FROM profiles ORDER BY name LIMIT 100").fetchall()
-            state = seedbox.status()
+            state = seedbox.display_status()
             public = []
             for profile in rows:
                 observed = runtime.status(profile["id"])
