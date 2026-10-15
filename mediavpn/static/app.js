@@ -191,6 +191,23 @@ async function refresh() {
   refreshing = refreshProfiles().finally(() => { refreshing = null; });
   return refreshing;
 }
+// Keep keyboard position and disclosures when a refreshed list replaces its rows.
+function preserveListInteraction(target, key) {
+  const controls = 'button, summary, a, input, select';
+  const active = document.activeElement;
+  const rows = [...target.children];
+  const focusedRow = rows.find(row => row.contains(active));
+  const focusedKey = focusedRow?.dataset[key];
+  const focusIndex = focusedRow ? [...focusedRow.querySelectorAll(controls)].indexOf(active) : -1;
+  const opened = new Set(rows.filter(row => row.querySelector('details[open]')).map(row => row.dataset[key]));
+  return () => {
+    for (const row of target.children) {
+      if (opened.has(row.dataset[key])) { const details = row.querySelector('details'); if (details) details.open = true; }
+      if (focusIndex >= 0 && row.dataset[key] === focusedKey) row.querySelectorAll(controls)[focusIndex]?.focus({preventScroll: true});
+    }
+  };
+}
+
 async function refreshProfiles() {
   const [runtime, profiles] = await Promise.all([api('runtime'),api('profiles')]);
   document.querySelector('#runtime-state').textContent = runtime.enabled ? t("VPN runtime enabled · status checked now") : t("Preview · tunnel startup is blocked. No traffic uses the VPN yet.");
@@ -199,7 +216,7 @@ async function refreshProfiles() {
   }
   const activeProfile = profiles.find(profile => profile.healthy) || profiles.find(profile => profile.state === 'starting');
   if (activeProfile) document.querySelector('#runtime-state').textContent = [activeProfile.name, t(statusNames[activeProfile.state]), countryLabel(activeProfile.country), activeProfile.publicIp].filter(Boolean).join(' \u00b7 ');
-  const target = document.querySelector('#profiles'); target.replaceChildren();
+  const target = document.querySelector('#profiles'); const restoreInteraction = preserveListInteraction(target, 'profileId'); target.replaceChildren();
   if (!profiles.length) {
     const empty = node('div', undefined, 'empty');
     empty.append(node('div', '◇', 'empty-orbit'), node('h2', t("No connections yet.")), node('p', t("Create your first VPN connection."), 'muted'));
@@ -207,7 +224,7 @@ async function refreshProfiles() {
     target.append(empty);
   }
   for (const profile of profiles) {
-    const item = node('article',undefined,'profile'); const details = node('div');
+    const item = node('article',undefined,'profile'); item.dataset.profileId = profile.id; const details = node('div');
     details.append(node('h2',profile.name),node('span',t(statusNames[profile.state]) || t("Unknown"),'status ' + (profile.healthy ? 'connected' : '')),node('p',`WireGuard · ${profile.endpoint}:${profile.port}`),node('p',t("Public IP: {0} · VPN port: {1}", {0: profile.publicIp || t("Unverified"), 1: profile.forwardedPort || t("Unverified")})));
     const controls = node('div',undefined,'actions');
     const country = node('p', t("Country: {0}", {0: countryLabel(profile.country)}), 'country-label');
@@ -230,9 +247,10 @@ async function refreshProfiles() {
     const serverInfo = country.nextElementSibling; if (serverInfo) more.append(serverInfo);
     more.append(forwarding);
     const remove = controls.querySelector('.danger'); if (remove) more.append(remove);
-    more.ontoggle = () => { if (more.open) expandedProfiles.add(profile.id); else expandedProfiles.delete(profile.id); };
+    more.ontoggle = () => { if (!more.isConnected) return; if (more.open) expandedProfiles.add(profile.id); else expandedProfiles.delete(profile.id); };
     details.append(more); item.append(details,controls); target.append(item);
   }
+  restoreInteraction();
 }
 async function refreshSharedApps(profiles) {
   if (globalThis.MediaVPNGateway) return globalThis.MediaVPNGateway.refresh(profiles);

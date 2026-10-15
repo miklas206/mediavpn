@@ -11,7 +11,7 @@ const messages = {
   "Bottom dock": "Dock nederst",
   "Compact menu": "Kompakt menu",
 
-  "MediaVPN 0.2.22": "MediaVPN 0.2.22",
+  "MediaVPN 0.2.23": "MediaVPN 0.2.23",
   "The server returned an invalid API response for {0} (HTTP {1}). Please try again.": "Serveren returnerede et ugyldigt API-svar fra {0} (HTTP {1}). Pr\u00f8v igen.",
   "Cloudflare": "Cloudflare",
   "Appearance": "Udseende",
