@@ -152,6 +152,36 @@ class Seedbox:
             raise ValueError("Invalid saved download limit")
         return value
 
+    def rss_interval(self):
+        value = self.settings().get("rssRefreshMinutes", 5)
+        if type(value) is not int or not 1 <= value <= 1440:
+            raise ValueError("Invalid saved RSS interval")
+        return value
+
+    def rss_settings(self, minutes=None):
+        with self.lock:
+            self.reconcile()
+            if not self.status()["ready"]:
+                raise HTTPException(409, "Connect a verified MediaVPN torrent client before changing RSS settings")
+            child = self.child()
+            if minutes is not None:
+                if type(minutes) is not int or not 1 <= minutes <= 1440:
+                    raise HTTPException(422, "Choose an RSS interval between 1 and 1440 minutes")
+                settings = {**self.settings(), "rssRefreshMinutes": minutes}
+                temporary = self.path.with_suffix(".tmp")
+                temporary.write_text(json.dumps(settings))
+                temporary.chmod(0o600)
+                temporary.replace(self.path)
+                self.execute(child, "app/setPreferences", "POST", {"json": json.dumps({"rss_refresh_interval": minutes})})
+            result = self.execute(child, "app/preferences", "GET", {})
+            try:
+                applied = json.loads(base64.b64decode(result["body"]))["rss_refresh_interval"]
+                if type(applied) is not int or applied != self.rss_interval():
+                    raise ValueError()
+            except (ValueError, KeyError, TypeError):
+                raise HTTPException(503, "The saved RSS interval could not be verified. Refresh after reconnecting the torrent client.") from None
+            return {"rssRefreshMinutes": applied}
+
     def queue_settings(self, limit=None):
         with self.lock:
             self.reconcile()
@@ -237,11 +267,11 @@ class Seedbox:
                     self.create(vpn, generation, observed["forwardedPort"])
                     self.error = "Torrent client is restarting with its separate public port"
                     return
-                if preferences.get("current_network_interface") != "tun0" or preferences.get("listen_port") != observed["forwardedPort"] or preferences.get("upnp") or preferences.get("max_active_downloads") != self.download_limit() or not preferences.get("queueing_enabled"):
-                    self.execute(child, "app/setPreferences", "POST", {"json": json.dumps({"current_network_interface": "tun0", "listen_port": observed["forwardedPort"], "upnp": False, "random_port": False, "max_active_downloads": self.download_limit(), "max_active_torrents": -1, "max_active_uploads": -1, "queueing_enabled": True, "rss_processing_enabled": True, "rss_auto_downloading_enabled": False})})
+                if preferences.get("current_network_interface") != "tun0" or preferences.get("listen_port") != observed["forwardedPort"] or preferences.get("upnp") or preferences.get("max_active_downloads") != self.download_limit() or not preferences.get("queueing_enabled") or preferences.get("rss_refresh_interval") != self.rss_interval() or not preferences.get("rss_processing_enabled") or preferences.get("rss_auto_downloading_enabled"):
+                    self.execute(child, "app/setPreferences", "POST", {"json": json.dumps({"current_network_interface": "tun0", "listen_port": observed["forwardedPort"], "upnp": False, "random_port": False, "max_active_downloads": self.download_limit(), "max_active_torrents": -1, "max_active_uploads": -1, "queueing_enabled": True, "rss_processing_enabled": True, "rss_auto_downloading_enabled": False, "rss_refresh_interval": self.rss_interval()})})
                     response = self.execute(child, "app/preferences", "GET", {})
                     preferences = json.loads(base64.b64decode(response["body"]))
-                if preferences.get("current_network_interface") != "tun0" or preferences.get("listen_port") != observed["forwardedPort"] or preferences.get("upnp") or preferences.get("max_active_downloads") != self.download_limit() or not preferences.get("queueing_enabled") or not preferences.get("rss_processing_enabled") or preferences.get("rss_auto_downloading_enabled"):
+                if preferences.get("current_network_interface") != "tun0" or preferences.get("listen_port") != observed["forwardedPort"] or preferences.get("upnp") or preferences.get("max_active_downloads") != self.download_limit() or not preferences.get("queueing_enabled") or not preferences.get("rss_processing_enabled") or preferences.get("rss_auto_downloading_enabled") or preferences.get("rss_refresh_interval") != self.rss_interval():
                     raise ValueError("Torrent interface or port not bound")
                 self.error = None
             except Exception as error:

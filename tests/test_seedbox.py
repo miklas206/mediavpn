@@ -83,8 +83,9 @@ def test_missing_vpn_port_stops_client_and_never_creates(tmp_path):
     assert controller.error is not None
 
 
+@pytest.mark.parametrize("saved_rss", [None, 10, 30])
 @pytest.mark.parametrize("saved_limit", [8, 3, 25])
-def test_reconnect_replaces_network_namespace_and_updates_port(tmp_path, saved_limit):
+def test_reconnect_replaces_network_namespace_and_updates_port(tmp_path, saved_limit, saved_rss):
     import base64
     import json
     events = []
@@ -92,7 +93,7 @@ def test_reconnect_replaces_network_namespace_and_updates_port(tmp_path, saved_l
     runtime = SimpleNamespace(enabled=True, container=lambda identifier: vpn,
         status=lambda identifier: {"healthy": True, "forwardedPort": 54321, "publicIp": "8.8.8.8"})
     controller = Seedbox(runtime, tmp_path)
-    controller.path.write_text(json.dumps({"enabled": True, "profileId": "a" * 24, "maxActiveDownloads": saved_limit}))
+    controller.path.write_text(json.dumps({"enabled": True, "profileId": "a" * 24, "maxActiveDownloads": saved_limit, **({"rssRefreshMinutes": saved_rss} if saved_rss is not None else {})}))
     child = SimpleNamespace(labels={"org.mediahub.mediavpn.generation": "old-vpn:old-generation"},
         attrs={"State": {"Running": True}}, reload=lambda: None,
         stop=lambda **kwargs: events.append("stop old client"), remove=lambda: events.append("remove old container"))
@@ -120,6 +121,7 @@ def test_reconnect_replaces_network_namespace_and_updates_port(tmp_path, saved_l
     assert not any("torrents/" in str(event) for event in events)  # User-paused torrents stay paused.
 
 
+    assert preferences["rss_refresh_interval"] == (saved_rss or 5)
     assert preferences["max_active_downloads"] == saved_limit
     assert controller.download_limit() == saved_limit
 
