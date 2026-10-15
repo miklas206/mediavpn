@@ -167,7 +167,7 @@ function selectVPNTab(value, focus = false) {
   if (!['connection', 'apps', 'cloudflare'].includes(value)) return;
   vpnTab = value;
   for (const button of document.querySelectorAll('[data-vpn-tab]')) {
-    button.textContent = t(button.dataset.vpnTab === 'connection' ? 'Connection' : button.dataset.vpnTab === 'apps' ? 'Apps and domains' : 'Cloudflare');
+    (button.querySelector('.app-nav-label') || button).textContent = t(button.dataset.vpnTab === 'connection' ? 'Connection' : button.dataset.vpnTab === 'apps' ? 'Apps and domains' : 'Cloudflare');
     const selected = button.dataset.vpnTab === value;
     button.setAttribute('aria-selected', String(selected)); button.tabIndex = selected ? 0 : -1;
     document.querySelector('#panel-' + button.dataset.vpnTab).hidden = !selected;
@@ -177,7 +177,7 @@ function selectVPNTab(value, focus = false) {
   globalThis.MediaVPNGateway?.setTab(value);
 }
 for (const button of document.querySelectorAll('[data-vpn-tab]')) {
-  button.textContent = t(button.dataset.vpnTab === 'connection' ? 'Connection' : button.dataset.vpnTab === 'apps' ? 'Apps and domains' : 'Cloudflare');
+  (button.querySelector('.app-nav-label') || button).textContent = t(button.dataset.vpnTab === 'connection' ? 'Connection' : button.dataset.vpnTab === 'apps' ? 'Apps and domains' : 'Cloudflare');
   button.onclick = () => selectVPNTab(button.dataset.vpnTab);
   button.onkeydown = event => {
     const tabs = ['connection', 'apps', 'cloudflare']; const index = tabs.indexOf(button.dataset.vpnTab);

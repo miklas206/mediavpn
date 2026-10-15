@@ -1,7 +1,9 @@
 import hashlib
+import ipaddress
 import secrets
 import time
 from typing import Literal
+from urllib.parse import urlsplit
 
 from argon2 import PasswordHasher
 from argon2.exceptions import VerificationError
@@ -90,8 +92,12 @@ def install_auth(app, database, base, hub_transport=None):
     from fastapi import Depends
 
     @app.get("/api/auth/me")
-    def me(session=Depends(authorized)):
-        return {"managed": hub.enabled, "themeOverride": theme_override(database, session.get("id")), "navigationOverride": navigation_override(database, session.get("id")), **{key: session[key] for key in ("csrf", "id", "username", "role", "language", "appearance", "theme") if key in session}}
+    def me(request: Request, session=Depends(authorized)):
+        try:
+            local = request.headers.get("host", "").lower() == urlsplit(hub.base).netloc.lower() and ipaddress.ip_address(urlsplit(hub.base).hostname).is_private
+        except ValueError:
+            local = False
+        return {"hubHomeUrl": (hub.hub if local else hub.browser_hub) if hub.enabled else None, "managed": hub.enabled, "themeOverride": theme_override(database, session.get("id")), "navigationOverride": navigation_override(database, session.get("id")), **{key: session[key] for key in ("csrf", "id", "username", "role", "language", "appearance", "theme") if key in session}}
 
     @app.post("/api/auth/logout")
     def logout(response: Response, session=Depends(authorized)):

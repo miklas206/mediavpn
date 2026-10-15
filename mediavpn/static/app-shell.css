@@ -1,23 +1,23 @@
-/* Automatically grows with available CSS viewport space, including OS/browser scaling. */
-:root { font-size: clamp(16px, calc(14px + .18vw), 21px); --app-header-height: 56px; --app-sidebar-width: 14rem; }
+/* Balanced responsive workspace shared with MediaHub Apps. */
+:root { font-size: 16px; --app-header-height: 56px; --app-sidebar-width: 14rem; }
 body { font-size: 1rem; }
 .signed-in .app-main { max-width: none; width: auto; min-width: 0; align-self: stretch; margin-inline: 0; }
-#workspace { width: min(100%, 2400px); max-width: none; margin-inline: auto; padding: clamp(16px, 2vw, 42px) clamp(16px, 3vw, 64px) 96px; }
+#workspace { width: min(100%, 1492px); max-width: none; margin-inline: auto; padding: 24px 26px 96px; }
 .topbar { min-height: var(--app-header-height); height: var(--app-header-height); padding: 0 24px; flex-wrap: nowrap; gap: 14px; }
 .topbar > .brand { margin-right: auto; flex-shrink: 0; }
-.topbar .brand strong { font-size: 1.3rem; }.topbar .brand span { font-size: .7rem; }
-.topbar button { font-size: .8rem; min-height: 38px; }.topbar .brand-mark { width: 32px; height: 32px; }
+.topbar .brand strong { font-size: 20px; }.topbar .brand span { font-size: .7rem; }
+.topbar button { font-size: .8rem; min-height: 38px; }.topbar .brand-mark { width: 28px; height: 28px; }
 #workspace :is(label, input, select, button) { font-size: .95rem; }
 #workspace :is(.muted, .seed-subline, .seed-activity small, .seed-progress-cell small, .tracker-updated, .seed-feed-rules) { font-size: .85rem; }
 #workspace :is(h1, .seed-page-heading h1) { font-size: 1.8rem; }
 #workspace :is(h2, .downloads-heading h2) { font-size: 1.2rem; }
 #workspace :is(h3, .torrent-name) { font-size: 1rem; }
 #workspace .seed-stats strong { font-size: 1.6rem; }#workspace .seed-stats small { font-size: .85rem; }
-#workspace .seed-stats article { padding: clamp(14px, 1.2vw, 26px); min-height: 96px; }
+#workspace .seed-stats article { padding: 18px; min-height: 88px; }
 #workspace .seed-spark { width: clamp(60px, 7vw, 160px); }
 #workspace .seed-activity .torrent-state, #workspace .seed-progress-cell > strong { font-size: .9rem; }
 #workspace .seed-poster { width: 52px; height: 78px; }#torrents > .seed-rich-row.torrent { grid-template-columns: 52px minmax(0,2.3fr) minmax(150px,1.2fr) minmax(140px,1fr) 70px; }
-#storage { width: min(calc(100% - 32px), 2272px); max-width: none; font-size: .85rem; }
+#storage { width: min(calc(100% - 32px), 1440px); max-width: none; font-size: .85rem; }
 .app-navigation-setting { display: grid; gap: 8px; margin-top: 18px; }
 .app-navigation-toggle { display: none; }
 .app-navigation { display: flex; align-items: center; gap: 6px; }
@@ -25,7 +25,7 @@ body { font-size: 1rem; }
 .app-navigation button:is([aria-pressed="true"],[aria-selected="true"]) { background: var(--accent-bg); color: var(--accent); border-color: var(--accent-line); }
 :root[data-app-navigation="sidebar"] .app-navigation { position: fixed; z-index: 18; inset: 56px auto 0 0; width: var(--app-sidebar-width); flex-direction: column; align-items: stretch; padding: 24px 16px; margin: 0; background: var(--surface); border-right: 1px solid var(--line); }
 :root[data-app-navigation="sidebar"] .app-main { margin-left: var(--app-sidebar-width); }
-:root[data-app-navigation="sidebar"] #storage { margin-inline: auto; width: min(calc(100% - 32px), 2272px); }
+:root[data-app-navigation="sidebar"] #storage { margin-inline: auto; width: min(calc(100% - 32px), 1440px); }
 :root[data-app-navigation^="dock-"] .app-navigation { position: fixed; z-index: 22; left: 50%; transform: translateX(-50%); max-width: calc(100vw - 24px); overflow-x: auto; flex-wrap: nowrap; padding: 8px; margin: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 8px 24px #0003; }
 :root[data-app-navigation="dock-top"] .app-navigation { top: 68px; }:root[data-app-navigation="dock-top"] #workspace { padding-top: 90px; }
 :root[data-app-navigation="dock-bottom"] .app-navigation { bottom: 16px; }:root[data-app-navigation="dock-bottom"] footer { padding-bottom: 84px; }
@@ -50,3 +50,42 @@ body { font-size: 1rem; }
 
 #workspace #torrents .seed-rich-row .torrent-name { font-size: 1rem; }
 #workspace #torrents .seed-subline, #workspace #torrents .seed-activity small, #workspace #torrents .seed-progress-cell small { font-size: .8rem; }
+
+/* Shared navigation geometry follows MediaHub's shell-navigation. */
+.app-navigation button::before { display: none !important; }
+.app-nav-icon { display:inline-flex; flex:none; width:19px; height:19px; }
+.app-nav-icon svg { display:block; width:100%; height:100%; }
+.app-navigation button { display:flex; align-items:center; justify-content:center; gap:8px; min-width:0; white-space:nowrap; border:1px solid transparent; border-radius:6px; background:transparent; }
+:root[data-app-navigation^="dock-"] .app-navigation { width:min(700px,calc(100vw - 24px)); border-color:var(--accent-line); border-radius:10px; padding:7px; gap:7px; background:color-mix(in srgb,var(--surface) 94%,transparent); backdrop-filter:blur(20px); }
+:root[data-app-kind="vpn"][data-app-navigation^="dock-"] .app-navigation { width:min(420px,calc(100vw - 24px)); }
+:root[data-app-navigation^="dock-"] .app-navigation button { flex:1; flex-direction:column; gap:5px; min-height:58px !important; padding:7px !important; font-size:12px !important; }
+:root[data-app-navigation="dock-top"] .app-navigation { top:78px; }
+:root[data-app-navigation="dock-top"] #workspace { padding-top:112px; }
+:root[data-app-navigation="dock-bottom"] .app-navigation { bottom:calc(64px + env(safe-area-inset-bottom)); }
+:root[data-app-navigation="topbar"] .app-navigation button:is([aria-pressed="true"],[aria-selected="true"]) { box-shadow:inset 0 -2px var(--accent); border-color:transparent; background:transparent; }
+:root[data-look="precision-terminal"] .app-navigation, :root[data-look="precision-terminal"] .app-navigation button { border-radius:0; box-shadow:none; }
+:root[data-look="soft-orbit"] .app-navigation, :root[data-look="soft-orbit"] .app-navigation button { border-radius:8px; }
+:root[data-look="edge-signal"] .app-navigation { border-radius:2px; border-top:2px solid var(--accent); }
+:root[data-look="floating-layers"] .app-navigation { box-shadow:0 4px 0 #0003,0 12px 24px #0003; }
+.topbar :is(button,a.app-hub-back) { min-height:36px; font-size:13px; }
+.topbar button svg { width:18px; height:18px; flex:none; }
+.app-hub-back { display:inline-flex; align-items:center; justify-content:center; gap:8px; padding:8px 12px; border:1px solid var(--line); border-radius:6px; color:var(--text); text-decoration:none; white-space:nowrap; }
+.app-hub-back:hover { color:var(--accent); border-color:var(--accent-line); background:var(--accent-bg); }
+.app-hub-back:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+.app-hub-back[hidden] { display:none; }
+:root[data-app-kind="vpn"] #profiles { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),440px)); gap:16px; align-items:start; }
+:root[data-app-kind="vpn"] #profiles > article { width:100%; margin:0; min-width:0; }
+@media(max-width:760px) {
+ #workspace { padding-inline:16px; }
+ :root[data-app-navigation="dock-top"] .app-navigation { top:72px; }
+ :root[data-app-navigation="dock-top"] #workspace { padding-top:104px; }
+ :root[data-app-navigation^="dock-"] .app-navigation { gap:3px; padding:5px; }
+ :root[data-app-navigation^="dock-"] .app-navigation button { font-size:10px !important; padding:6px 4px !important; }
+ .topbar { gap:6px; padding-inline:12px; }
+ .app-hub-back { padding:8px; } .app-hub-back > span:last-child { display:none; }
+ .topbar .brand strong { font-size:17px; }
+}
+
+@media(max-width:480px) { .topbar .app-settings-button { padding:8px; } .topbar .app-settings-button > span { display:none; } }
+
+@media(max-width:480px) { .topbar .app-navigation-toggle { width:34px; padding:8px; flex:none; } }

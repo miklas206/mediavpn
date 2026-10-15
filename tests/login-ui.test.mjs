@@ -21,7 +21,7 @@ for (const status of [401, 403, 503]) {
       window: {addEventListener() {}},
       document: { querySelector: find, querySelectorAll: () => [], createElement: element, body: element(), addEventListener() {} },
       location: { replace: url => redirects.push(url) }, setInterval() {}, setTimeout() {}, clearTimeout() {},
-      fetch: async url => ({ ok: url === '/api/auth/status', status,
+      fetch: async url => ({ headers: {get: () => 'application/json'}, ok: url === '/api/auth/status', status,
         json: async () => url === '/api/auth/status'
           ? { managed: true, needsSetup: false, loginUrl: '/auth/hub/start' }
           : { detail: status === 401 ? 'Sign in required' : 'MediaHub unavailable or denied' },

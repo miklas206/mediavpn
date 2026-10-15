@@ -8,7 +8,8 @@ from fastapi.testclient import TestClient
 from mediavpn.app import create_app
 
 
-def test_managed_login_roles_revocation_and_one_time_callback(tmp_path, monkeypatch):
+@pytest.mark.parametrize("app_origin,expected_hub", [("https://vpn.example", "https://public-hub.example"), ("https://192.168.1.20:18802", "https://hub.example")])
+def test_managed_login_roles_revocation_and_one_time_callback(tmp_path, monkeypatch, app_origin, expected_hub):
     monkeypatch.setenv("MEDIAVPN_HUB_URL", "https://hub.example")
     monkeypatch.setenv("MEDIAVPN_HUB_BROWSER_URL", "https://public-hub.example")
     role = "administrator"
@@ -29,26 +30,27 @@ def test_managed_login_roles_revocation_and_one_time_callback(tmp_path, monkeypa
         assert request.headers["Authorization"] == "Bearer " + "t" * 64
         return httpx.Response(200, json={"data": {"id": "member", "username": "test", "role": role}}) if allowed else httpx.Response(403)
 
-    with TestClient(create_app(tmp_path, "https://vpn.example", hub_transport=httpx.MockTransport(hub)), base_url="https://vpn.example") as client:
+    with TestClient(create_app(tmp_path, app_origin, hub_transport=httpx.MockTransport(hub)), base_url=app_origin) as client:
         status = client.get("/api/auth/status").json()
         assert status["managed"] and not status["needsSetup"]
-        assert status["loginUrl"] == "https://vpn.example/auth/hub/start"
+        assert status["loginUrl"] == app_origin + "/auth/hub/start"
         body = {"username": "local", "password": "synthetic-password"}
         assert client.post("/api/auth/setup", json=body).status_code == 403
         assert client.post("/api/auth/login", json=body).status_code == 403
         start = client.get("/auth/hub/start", follow_redirects=False)
         params = parse_qs(urlsplit(start.headers["location"]).query)
-        assert urlsplit(start.headers["location"]).netloc == "public-hub.example"
+        assert urlsplit(start.headers["location"]).netloc == urlsplit(expected_hub).netloc
         assert params["packageId"] == ["org.mediahub.mediavpn"]
         state = params["state"][0]
         query = {"state": state, "code": "c" * 64}
         assert client.get("/auth/hub/callback", params={**query, "state": "x" * 64}).status_code == 403
         assert client.get("/auth/hub/callback", params=query, follow_redirects=False).status_code == 303
-        client.cookies.set("mediavpn_sso_state", state, domain="vpn.example", path="/auth/hub")
+        client.cookies.set("mediavpn_sso_state", state, domain=urlsplit(app_origin).hostname, path="/auth/hub")
         assert client.get("/auth/hub/callback", params=query, follow_redirects=False).status_code == 401
         assert len(exchanges) == 1
         identity = client.get("/api/auth/me").json()
         assert identity["id"] == "member" and identity["role"] == "administrator"
+        assert identity["hubHomeUrl"] == expected_hub
         assert client.post("/api/profiles/" + "a" * 24 + "/start").status_code == 403
         client.headers["X-MediaVPN-CSRF"] = identity["csrf"]
         assert client.put("/api/auth/navigation", json={"navigationOverride": "sidebar"}).status_code == 200

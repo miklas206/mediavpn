@@ -15,7 +15,7 @@ test('server selection offers manual fallback and sends only the chosen country'
     setInterval() {}, setTimeout() {}, clearTimeout() {}, confirm: () => true,
     fetch: async (url, options) => {
       if (options.method === 'PUT') writes.push([url, JSON.parse(options.body)]);
-      return {ok: true, json: async () => url === '/api/proton/countries' ? {countries: ['Denmark', 'Germany']} : url === '/api/proton/recommendations' ? {recommendations: [{country: 'Denmark', server: 'dk-01.protonvpn.net', latencyMs: 10}], tested: 4, measuredAt: Date.now() / 1000} : {needsSetup: true}};
+      return {ok: true, status:200, headers:{get:()=> 'application/json'}, json: async () => url === '/api/proton/countries' ? {countries: ['Denmark', 'Germany']} : url === '/api/proton/recommendations' ? {recommendations: [{country: 'Denmark', server: 'dk-01.protonvpn.net', latencyMs: 10}], tested: 4, measuredAt: Date.now() / 1000} : {needsSetup: true}};
     },
   });
   vm.runInContext(readFileSync(new URL('../mediavpn/static/i18n.js', import.meta.url), 'utf8') + '\n' + readFileSync(new URL('../mediavpn/static/app.js', import.meta.url), 'utf8'), context);

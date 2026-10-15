@@ -1,6 +1,6 @@
 # MediaVPN
 
-MediaVPN 0.2.20 automatically adapts workspace width, text and spacing to the screen, with the common 56-pixel desktop header and left-aligned brand. Navigation follows the signed-in MediaHub user (sidebar, topbar, top/bottom dock or launcher); Settings can save an app-specific override or restore inheritance. Overrides are stored per account in an additive SQLite table without changing theme preferences, profiles or credentials. Standalone navigation preferences are browser-local. Isolated Chromium verified all five layouts at widths 320–3840 pixels; this does not constitute a live installation check.
+MediaVPN 0.2.21 matches the MediaHub Apps 1440-pixel content width, keeps a stable text scale, and bounds VPN profile cards to 440 pixels. The 56-pixel header, icon navigation, active states and theme variants follow the Hub. A Back to MediaHub button chooses the configured LAN/browser Hub origin from the access context; standalone apps hide it. Navigation follows the signed-in MediaHub user (sidebar, topbar, top/bottom dock or launcher); Settings can save an app-specific override or restore inheritance. Overrides are stored per account in an additive SQLite table without changing theme preferences, profiles or credentials. Standalone navigation preferences are browser-local. Isolated Chromium verified all five layouts at widths 320–3840 pixels; this does not constitute a live installation check.
 
 Verified runtime observations match the active public IP against
 [Proton's published geofeed](https://ip.me/static/geofeeds/geofeed-mm.csv),

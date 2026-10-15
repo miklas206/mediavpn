@@ -1,6 +1,7 @@
 // Account language; English source keys and Danish translations.
 (() => {
 const messages = {
+  "Back to MediaHub": "Tilbage til MediaHub",
   "Navigation layout": "Navigationslayout",
   "Open navigation": "Åbn navigation",
   "Follow MediaHub": "Følg MediaHub",
@@ -10,7 +11,7 @@ const messages = {
   "Bottom dock": "Dock nederst",
   "Compact menu": "Kompakt menu",
 
-  "MediaVPN 0.2.20": "MediaVPN 0.2.20",
+  "MediaVPN 0.2.21": "MediaVPN 0.2.21",
   "The server returned an invalid API response for {0} (HTTP {1}). Please try again.": "Serveren returnerede et ugyldigt API-svar fra {0} (HTTP {1}). Pr\u00f8v igen.",
   "Cloudflare": "Cloudflare",
   "Appearance": "Udseende",
