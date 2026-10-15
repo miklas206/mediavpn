@@ -15,6 +15,8 @@ from pathlib import Path
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
 from fastapi import HTTPException
 
+from mediavpn.diagnostics import container_fields, emit, error_fields, trace
+
 IMAGE = "mediahub-vpn-relay:1"
 LABEL = "org.mediahub.vpn.shared-gateway"
 
@@ -227,6 +229,7 @@ class SharedGateway:
         )
         return image.id
 
+    @trace("supervisor", "shared_gateway_reconcile")
     def reconcile(self):
         if not self.runtime.enabled:
             return
@@ -238,6 +241,7 @@ class SharedGateway:
             try:
                 observed = self.runtime.status(state["profileId"])
                 if not observed.get("healthy"):
+                    emit(self.runtime, "gateway.blocked", reason="provider_unverified", profile=state["profileId"], health=observed.get("state"))
                     self.stop_helper()
                     self.error = (
                         "Shared VPN is not verified; app internet traffic stays blocked"
@@ -256,6 +260,7 @@ class SharedGateway:
                         or row.attrs["State"].get("Health", {}).get("Status")
                         == "unhealthy"
                     ):
+                        emit(self.runtime, "gateway.replace_requested", reason="namespace_image_or_health_changed", **container_fields(row))
                         self.stop_helper()
                         row = None
                 if not row:
@@ -303,7 +308,8 @@ class SharedGateway:
                 elif not row.attrs["State"].get("Running"):
                     row.start()
                 self.error = None
-            except Exception:
+            except Exception as error:
+                emit(self.runtime, "gateway.reconcile_error", reason="gateway_verification_failed", **error_fields(error))
                 self.error = "Shared VPN gateway could not be verified; app internet traffic stays blocked"
                 try:
                     self.stop_helper()

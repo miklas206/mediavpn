@@ -18,6 +18,7 @@ from urllib.parse import urlsplit
 from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 
+from .diagnostics import container_fields, emit, error_fields, trace
 from .gateway_image.config import ca_name
 from .gateway_image.config import routes as validate_routes
 from .shared_gateway import save
@@ -82,6 +83,7 @@ class WebSettings(BaseModel):
 class WebGateway:
     def __init__(self, runtime, data):
         self.runtime = runtime
+        self.observation = None
         self.directory = Path(data) / "web-gateway"
         self.directory.mkdir(mode=0o700, exist_ok=True)
         if self.directory.is_symlink():
@@ -221,6 +223,7 @@ class WebGateway:
             for role in ("web", "torrent-lease", "plex-lease"):
                 row = self.helper(role)
                 if row:
+                    emit(self.runtime, "port_helper.stop_requested", action=role, reason="gateway_stop", **container_fields(row))
                     row.stop(timeout=8)
                     row.remove(v=False)
             for folder in ("http-state", "nat-state", "plex-state"):
@@ -266,6 +269,7 @@ class WebGateway:
             == state["profileId"]
         )
 
+    @trace("supervisor", "web_gateway_reconcile")
     def reconcile(self):
         if not self.runtime.enabled:
             return
@@ -278,7 +282,8 @@ class WebGateway:
                 observed = self.runtime.status(state["profileId"])
                 if observed.get("healthy") and observed.get("forwardedPort"):
                     image = self.ensure_image()
-            except Exception:
+            except Exception as error:
+                emit(self.runtime, "web_gateway.reconcile_error", reason="gateway_image_failed", **error_fields(error))
                 self.error = "Gateway image could not be built; check Docker build and download access"
                 self.stop()
                 return
@@ -290,6 +295,8 @@ class WebGateway:
                     return
                 observed = self.runtime.status(state["profileId"])
                 if not observed.get("healthy") or not observed.get("forwardedPort"):
+                    emit(self.runtime, "web_gateway.blocked", reason="provider_or_port_unverified", profile=state["profileId"],
+                         health=observed.get("state"), port=observed.get("forwardedPort"))
                     self.stop()
                     self.error = (
                         "Waiting for a verified Proton connection and forwarded port"
@@ -312,6 +319,13 @@ class WebGateway:
                     "publicIp": observed["publicIp"],
                     "publicPort": port,
                 }
+                observation = (generation, state["revision"], observed["publicIp"], port, internal)
+                if self.observation != observation:
+                    emit(self.runtime, "web_gateway.mapping_changed", reason="provider_or_route_revision_changed", generation=generation,
+                         publicIp=observed["publicIp"], port=port, internalPort=internal,
+                         previousPublicIp=self.observation[2] if self.observation else None,
+                         previousPort=self.observation[3] if self.observation else None)
+                    self.observation = observation
                 save(
                     self.directory / "http-config/settings.json",
                     {**common, "routes": state["routes"]},
@@ -413,7 +427,8 @@ class WebGateway:
                     elif not row.attrs["State"].get("Running"):
                         row.start()
                 self.error = None
-            except Exception:
+            except Exception as error:
+                emit(self.runtime, "web_gateway.reconcile_error", reason="gateway_runtime_failed", **error_fields(error))
                 self.error = "Gateway runtime could not be prepared; check Docker, TUN and image build access"
                 try:
                     self.stop()

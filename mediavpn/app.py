@@ -19,6 +19,13 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from mediavpn.auth import install_auth
 from mediavpn.configuration import parse_wireguard
+from mediavpn.diagnostics import (
+    Diagnostics,
+    DockerObserver,
+    cause,
+    container_fields,
+    error_fields,
+)
 from mediavpn.proton import ProtonSelectionError, ProtonSelector, selected_configuration
 from mediavpn.runtime import Runtime
 from mediavpn.seedbox import Seedbox
@@ -99,6 +106,8 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
     if origin.scheme not in {"http", "https"} or not origin.hostname or origin.path or origin.username or origin.query or origin.fragment:
         raise ValueError("Expected an HTTP(S) origin")
     runtime = runtime or Runtime(data, os.environ.get("MEDIAVPN_RUNTIME") == "docker", os.environ.get("MEDIAVPN_HOST_DATA"))
+    diagnostics = getattr(runtime, "diagnostics", None) or Diagnostics(data)
+    runtime.diagnostics = diagnostics
     selector = selector or ProtonSelector()
     if isinstance(runtime, Runtime):
         runtime.selector = selector
@@ -144,6 +153,8 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
                 if container:
                     container.reload()
                 if not container or not container.attrs.get("State", {}).get("Running"):
+                    diagnostics.record("provider.recovery_requested", profile=profile["id"], reason="provider_missing" if not container else "provider_stopped",
+                                       **(container_fields(container) if container else {}))
                     stop_attached(profile["id"])
             runtime.start(profile["id"], **options)
 
@@ -161,7 +172,12 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
     @asynccontextmanager
     async def lifespan(app):
         stopping = threading.Event()
+        observer = DockerObserver(runtime, diagnostics) if isinstance(runtime, Runtime) and runtime.enabled else None
+        observer_thread = threading.Thread(target=observer.run, args=(stopping,), daemon=True, name="vpn-docker-observer") if observer else None
+        if observer_thread:
+            observer_thread.start()
         def supervise():
+            observations = {}
             while not stopping.is_set():
                 wakeup.clear()
                 try:
@@ -175,13 +191,23 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
                                         runtime.stop(other["id"])
                         desired = connection.execute("SELECT id,port_forwarding,auto_country FROM profiles WHERE desired=1").fetchall()
                         for profile in desired:
-                            start_profile(profile)
+                            with cause("supervisor", "desired_profile_reconcile"):
+                                start_profile(profile)
+                                value = runtime.status(profile["id"])
+                                observation = {key: value.get(key) for key in ("state", "healthy", "publicIp", "forwardedPort")}
+                                if observations.get(profile["id"]) != observation:
+                                    previous = observations.get(profile["id"], {})
+                                    diagnostics.record("provider.observed", profile=profile["id"], reason="provider_state_changed",
+                                                       health=value.get("state"), publicIp=value.get("publicIp"), port=value.get("forwardedPort"),
+                                                       previousPublicIp=previous.get("publicIp"), previousPort=previous.get("forwardedPort"))
+                                    observations[profile["id"]] = observation
                     web.reconcile()
                     if stopping.is_set():
                         break
                     seedbox.reconcile()
                     shared.reconcile()
-                except Exception:
+                except Exception as error:
+                    diagnostics.record("supervisor.error", origin="supervisor", reason="dependent_safety_stop", **error_fields(error))
                     try:
                         seedbox.stop()
                     except Exception:
@@ -202,6 +228,14 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
         yield
         stopping.set()
         wakeup.set()
+        observer_stream = observer.stream if observer else None
+        if observer_stream is not None:
+            try:
+                observer_stream.close()
+            except Exception as error:
+                diagnostics.record("observer.error", reason="event_stream_close_failed", **error_fields(error))
+        if observer_thread:
+            observer_thread.join(timeout=1)
         try:
             web.close()
         except Exception:
@@ -278,7 +312,7 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
 
     @app.get("/healthz")
     def health():
-        return {"status": "healthy", "version": "0.2.12"}
+        return {"status": "healthy", "version": "0.2.13"}
 
     @app.get("/api/runtime")
     def runtime_status(session=Depends(authorized)):
@@ -342,9 +376,11 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
         return web.prerequisites()
 
     @app.put("/api/integration/web-gateway")
+    @cause("hub", "web_gateway_configuration_saved")
     def web_gateway_settings(body: WebSettings, session=Depends(gateway_machine_authorized)):
         with lock, seedbox.lock:
             routes = web.validate(body)
+            diagnostics.record("request.web_gateway", enabled=body.enabled, profile=body.profileId)
             if body.enabled:
                 prerequisites = web.prerequisites(force=True)
                 if not prerequisites["ready"]:
@@ -381,6 +417,7 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
                 "checkedAt": time.time()}
 
     def configure_shared(body):
+        diagnostics.record("request.shared_gateway", enabled=body.enabled, profile=body.profileId)
         with lock, seedbox.lock:
             if web.settings()["enabled"] and (not body.enabled or body.profileId != web.settings()["profileId"]):
                 raise HTTPException(409, "Change or disable the web gateway before changing its shared VPN profile")
@@ -415,6 +452,7 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
         return shared_overview()
 
     @app.put("/api/shared")
+    @cause("user", "shared_gateway_settings_saved")
     def shared_settings(body: SeedboxSettings, session=Depends(authorized)):
         return configure_shared(body)
 
@@ -468,6 +506,7 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
         return seedbox_overview()
 
     def configure_seedbox(body):
+        diagnostics.record("request.torrent_settings", enabled=body.enabled, profile=body.profileId)
         if body.enabled:
             if shared.profile() and shared.profile() != body.profileId:
                 raise HTTPException(409, "MediaSeed must use the selected shared VPN profile")
@@ -477,10 +516,12 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
         return seedbox.configure(body.profileId, body.enabled)
 
     @app.put("/api/seedbox")
+    @cause("user", "torrent_settings_saved")
     def seedbox_settings(body: SeedboxSettings, session=Depends(authorized)):
         return configure_seedbox(body)
 
     @app.put("/api/integration/settings")
+    @cause("hub", "torrent_settings_saved")
     def integration_settings(body: SeedboxSettings, session=Depends(machine_authorized)):
         return configure_seedbox(body)
 
@@ -504,6 +545,16 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
             rows = connection.execute("SELECT id,name,endpoint,port,port_forwarding,auto_country FROM profiles ORDER BY name").fetchall()
             return [{**dict(row), "port_forwarding": bool(row["port_forwarding"]), **runtime.status(row["id"])} for row in rows]
 
+    @app.get("/api/diagnostics/logs")
+    def diagnostic_logs(session=Depends(authorized)):
+        if session.get("role") != "administrator":
+            raise HTTPException(403, "App administrator access required")
+        return {"entries": diagnostics.entries()}
+
+    @app.get("/api/integration/diagnostics/logs")
+    def integration_diagnostic_logs(session=Depends(gateway_machine_authorized)):
+        return {"entries": diagnostics.entries()}
+
     @app.get("/api/proton/countries")
     def countries(session=Depends(authorized)):
         try:
@@ -512,6 +563,7 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
             raise HTTPException(503, "Protons serverliste kunne ikke hentes. Prøv igen senere.") from None
 
     @app.put("/api/profiles/{identifier}/server-selection")
+    @cause("user", "server_selection_saved")
     def server_selection(identifier: str, body: ServerSelection, session=Depends(authorized)):
         with lock, seedbox.lock:
             profile = find(identifier)
@@ -530,6 +582,7 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
             # NAT-PMP have supplied a verified port. Re-saving an active choice
             # deliberately measures/selects a new server too.
             if profile["auto_country"] != body.country or reconnecting:
+                diagnostics.record("request.server_selection", profile=identifier, actor=session.get("id"), enabled=reconnecting)
                 stop_attached(identifier)
                 runtime.stop(identifier)
                 with database() as connection:
@@ -588,11 +641,13 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
         return {"id": identifier, "name": body.name.strip(), "state": "stopped"}
 
     @app.post("/api/profiles/{identifier}/{action}")
+    @cause("user", "profile_action")
     def action(identifier: str, action: str, session=Depends(authorized)):
         if action not in {"start", "stop"}:
             raise HTTPException(404, "Ukendt handling")
         with lock, seedbox.lock:
             profile = find(identifier)
+            diagnostics.record("request.profile_action", profile=identifier, actor=session.get("id"), action=action)
             if action == "start":
                 start_profile(profile)
             else:
@@ -604,11 +659,13 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
             return runtime.status(identifier)
 
     @app.put("/api/profiles/{identifier}/forwarding")
+    @cause("user", "forwarding_setting_changed")
     def forwarding(identifier: str, body: Forwarding, session=Depends(authorized)):
         with lock, seedbox.lock:
             if not body.enabled and web.settings()["enabled"] and web.settings()["profileId"] == identifier:
                 raise HTTPException(409, "The web gateway requires Proton port forwarding")
             find(identifier)
+            diagnostics.record("request.forwarding", profile=identifier, actor=session.get("id"), enabled=body.enabled)
             stop_attached(identifier)
             runtime.stop(identifier)
             with database() as connection:
@@ -617,11 +674,13 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
         return {"saved": True, "port_forwarding": body.enabled, "restartRequired": True}
 
     @app.delete("/api/profiles/{identifier}")
+    @cause("user", "profile_deleted")
     def remove(identifier: str, session=Depends(authorized)):
         with lock, seedbox.lock:
             find(identifier)
             if shared.profile() == identifier:
                 raise HTTPException(409, "Disable shared VPN before deleting its profile")
+            diagnostics.record("request.profile_delete", profile=identifier, actor=session.get("id"))
             stop_attached(identifier)
             runtime.stop(identifier, remove=True)
             with database() as connection:

@@ -13,6 +13,8 @@ from pathlib import Path, PurePosixPath
 
 from fastapi import HTTPException
 
+from mediavpn.diagnostics import container_fields, emit, error_fields, trace
+
 CLIENT_OWNER = "org.mediahub.mediavpn.seedbox"
 CLIENT_NAME = "mediavpn-mediaseed-client"
 ALLOWED_READS = {"app/version", "app/preferences", "torrents/info", "torrents/categories", "transfer/info", "torrents/properties", "torrents/files", "torrents/trackers", "sync/torrentPeers", "rss/items", "rss/torrent"}
@@ -148,10 +150,13 @@ class Seedbox:
         if child:
             child.reload()
             if child.attrs.get("State", {}).get("Running"):
+                emit(self.runtime, "torrent.stop_requested", **container_fields(child))
                 child.stop(timeout=10)
             if remove:
+                emit(self.runtime, "torrent.remove_requested", **container_fields(child))
                 child.remove(v=False, force=False)
 
+    @trace("supervisor", "torrent_reconcile")
     def reconcile(self):
         with self.lock:
             settings = self.settings()
@@ -163,6 +168,8 @@ class Seedbox:
             try:
                 observed = self.observed(settings["profileId"])
                 if not observed["healthy"] or not observed["forwardedPort"]:
+                    emit(self.runtime, "torrent.blocked", reason="provider_or_forwarded_port_unverified", profile=settings["profileId"],
+                         health=observed.get("state"), port=observed.get("forwardedPort"))
                     self.stop()
                     self.error = "VPN eller tildelt port er ikke verificeret"
                     return
@@ -171,20 +178,26 @@ class Seedbox:
                 generation = self.generation(vpn, observed)
                 child = self.child()
                 if child and child.labels.get("org.mediahub.mediavpn.generation") != generation:
+                    emit(self.runtime, "torrent.recreate_requested", reason="provider_generation_changed",
+                         previousGeneration=child.labels.get("org.mediahub.mediavpn.generation"), **container_fields(child))
                     child.stop(timeout=10)
                     child.remove()
                     child = None
                 if child is None:
+                    emit(self.runtime, "torrent.create_requested", reason="desired_client_missing", port=observed["forwardedPort"])
                     self.create(vpn, generation, observed["forwardedPort"])
                     child = self.child()
                 child.reload()
                 if not child.attrs.get("State", {}).get("Running"):
+                    emit(self.runtime, "torrent.start_requested", reason="verified_client_stopped", **container_fields(child))
                     child.start()
                     self.error = "Torrentklienten starter i VPN-netvaerket"
                     return
                 response = self.execute(child, "app/preferences", "GET", {})
                 preferences = json.loads(base64.b64decode(response["body"]))
                 if observed.get("webGateway") and preferences.get("announce_port") != observed["publicTorrentPort"]:
+                    emit(self.runtime, "torrent.recreate_requested", reason="public_announce_port_changed", port=observed["publicTorrentPort"],
+                         previousPort=preferences.get("announce_port"), **container_fields(child))
                     # libtorrent applies announce_port only at startup. Recreate the
                     # owned child with its saved files; never claim a live setting took effect.
                     child.stop(timeout=10)
@@ -199,7 +212,8 @@ class Seedbox:
                 if preferences.get("current_network_interface") != "tun0" or preferences.get("listen_port") != observed["forwardedPort"] or preferences.get("upnp") or preferences.get("max_active_downloads") != 8 or not preferences.get("queueing_enabled") or not preferences.get("rss_processing_enabled") or preferences.get("rss_auto_downloading_enabled"):
                     raise ValueError("Torrent interface or port not bound")
                 self.error = None
-            except Exception:
+            except Exception as error:
+                emit(self.runtime, "torrent.reconcile_error", reason="client_verification_failed", **error_fields(error))
                 child = self.child()
                 if child:
                     child.reload()
