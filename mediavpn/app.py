@@ -294,6 +294,8 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
         response.headers.update({"X-Content-Type-Options": "nosniff", "X-Frame-Options": "DENY", "Referrer-Policy": "no-referrer", "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'"})
         if request.url.path.startswith("/api"):
             response.headers["Cache-Control"] = "no-store"
+        elif request.url.path == "/" or request.url.path.startswith("/static/") and request.url.path.endswith((".html", ".js", ".css")):
+            response.headers["Cache-Control"] = "no-cache"
         return response
 
     authorized = install_auth(app, database, base, hub_transport)
@@ -321,7 +323,7 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
 
     @app.get("/healthz")
     def health():
-        return {"status": "healthy", "version": "0.2.25"}
+        return {"status": "healthy", "version": "0.2.26"}
 
     @app.get("/api/runtime")
     def runtime_status(session=Depends(authorized)):
