@@ -34,6 +34,8 @@ def test_installed_app_selection_proxies_session_and_enforces_csrf(tmp_path, mon
         client.headers["X-MediaVPN-CSRF"] = "csrf-value"
         assert client.put("/api/hub-apps/jellyfin", json={"enabled": True}).status_code == 200
         assert calls[-1] == ("PUT", "/api/v1/sso/vpn/apps/jellyfin", {"enabled": True})
+        assert client.put("/api/hub-apps/jellyfin", json={"enabled": True, "profileId": "a" * 24}).status_code == 200
+        assert calls[-1][2] == {"enabled": True, "profileId": "a" * 24}
         assert client.put("/api/hub-apps/arbitrary", json={"enabled": True}).status_code == 422
         assert client.get("/api/hub-web-gateway").status_code == 200
         assert calls[-1][:2] == ("GET", "/api/v1/sso/vpn-gateway")

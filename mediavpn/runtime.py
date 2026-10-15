@@ -124,7 +124,7 @@ class Runtime:
 
     def start(self, identifier, port_forwarding=False, auto_country=None):
         shared = self.shared_profile() == identifier
-        endpoint = self.shared_endpoint() if shared else None
+        endpoint = self.shared_endpoint() if shared else (self.relay_endpoint(identifier) if hasattr(self, "relay_endpoint") else None)
         marker = str(endpoint) if endpoint else ""
         targets = ",".join(self.web_targets()) if shared else ""
         try:

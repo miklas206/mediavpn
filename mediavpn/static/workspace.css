@@ -92,6 +92,12 @@ dialog::backdrop { backdrop-filter: blur(7px); }
 .profile p { margin:6px 0; font-size:13px; }
 .profile .actions { align-items:center; justify-content:flex-start; padding-top:12px; }
 .profile-more { margin-top:10px; font-size:13px; }
+.profile-apps { margin:16px 0 0; padding:12px; border:1px solid var(--line); border-radius:8px; display:flex; flex-wrap:wrap; gap:12px 24px; }
+.profile-apps legend { padding:0 6px; font-weight:600; }
+.profile-app-choice { display:flex; align-items:center; gap:10px; min-width:180px; cursor:pointer; }
+.profile-app-choice input { width:18px; height:18px; margin:0; flex:none; }
+.profile-app-choice span { display:grid; gap:4px; }
+.profile-app-choice small { color:var(--muted); overflow-wrap:anywhere; }
 .profile-more summary, .gateway-status details summary { color:var(--muted); cursor:pointer; }
 .profile-more > :not(summary) { margin-top:12px; }
 .compact-route { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:12px 0; border-bottom:1px solid var(--line); min-width:0; }

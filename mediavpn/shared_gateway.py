@@ -37,19 +37,23 @@ def save(path, value):
 
 
 class SharedGateway:
-    def __init__(self, runtime, data, origin):
+    def __init__(self, runtime, data, origin, scope=None, port=None):
         self.runtime = runtime
-        self.data = Path(data) / "shared"
-        self.data.mkdir(mode=0o700, exist_ok=True)
+        self.scope = scope
+        self.port = port
+        self.relative_data = Path("shared") if scope is None else Path("profile-relays") / scope
+        self.data = Path(data) / self.relative_data
+        self.data.mkdir(mode=0o700, exist_ok=True, parents=True)
         self.path = self.data / "settings.json"
         self.config = self.data / "gateway.json"
         self.lock = threading.RLock()
         self.error = None
         self.origin = origin
         self.image = os.environ.get("MEDIAVPN_RELAY_IMAGE", IMAGE)
-        runtime.shared_profile = self.profile
-        runtime.shared_endpoint = self.endpoint
-        runtime.stop_shared = self.stop_helper
+        if scope is None:
+            runtime.shared_profile = self.profile
+            runtime.shared_endpoint = self.endpoint
+            runtime.stop_shared = self.stop_helper
         self.token_path = Path(data) / "integrations/mediahub.token"
         self.token_path.parent.mkdir(mode=0o700, exist_ok=True)
         if not self.token_path.exists():
@@ -76,7 +80,7 @@ class SharedGateway:
         )
         try:
             ip = ipaddress.ip_address(raw)
-            port = int(os.environ.get("MEDIAVPN_SHARED_PORT", "18804"))
+            port = self.port if self.port is not None else int(os.environ.get("MEDIAVPN_SHARED_PORT", "18804"))
             if (
                 ip.version != 4
                 or not any(
@@ -115,6 +119,7 @@ class SharedGateway:
         rows = self.runtime.docker().containers.list(
             all=True, filters={"label": f"{LABEL}=mediavpn"}
         )
+        rows = [row for row in rows if getattr(row, "labels", {}).get("org.mediahub.vpn.relay-scope") == self.scope]
         if len(rows) > 1:
             raise HTTPException(
                 409, "Multiple shared VPN gateways require operator review"
@@ -266,17 +271,18 @@ class SharedGateway:
                 if not row:
                     row = self.runtime.docker().containers.run(
                         image,
-                        name="mediavpn-shared-gateway",
+                        name="mediavpn-shared-gateway" + ("-" + self.scope if self.scope else ""),
                         detach=True,
                         network_mode="container:" + vpn.id,
                         volumes={
-                            str(self.runtime.host_data / "shared"): {
+                            str(self.runtime.host_data / self.relative_data): {
                                 "bind": "/config",
                                 "mode": "ro",
                             }
                         },
                         command=[],
                         labels={
+                            **({"org.mediahub.vpn.relay-scope": self.scope} if self.scope else {}),
                             LABEL: "mediavpn",
                             "org.mediahub.mediavpn.owner": "mediavpn",
                             "org.mediahub.mediavpn.profile": state["profileId"],

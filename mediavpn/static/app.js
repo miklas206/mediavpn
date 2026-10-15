@@ -164,7 +164,7 @@ document.querySelector('#server-form').onsubmit = async event => {
   });
 };
 function selectVPNTab(value, focus = false) {
-  if (!['connection', 'apps', 'cloudflare'].includes(value)) return;
+  if (!['connection', 'cloudflare'].includes(value)) return;
   vpnTab = value;
   for (const button of document.querySelectorAll('[data-vpn-tab]')) {
     (button.querySelector('.app-nav-label') || button).textContent = t(button.dataset.vpnTab === 'connection' ? 'Connection' : button.dataset.vpnTab === 'apps' ? 'Apps and domains' : 'Cloudflare');
@@ -180,7 +180,7 @@ for (const button of document.querySelectorAll('[data-vpn-tab]')) {
   (button.querySelector('.app-nav-label') || button).textContent = t(button.dataset.vpnTab === 'connection' ? 'Connection' : button.dataset.vpnTab === 'apps' ? 'Apps and domains' : 'Cloudflare');
   button.onclick = () => selectVPNTab(button.dataset.vpnTab);
   button.onkeydown = event => {
-    const tabs = ['connection', 'apps', 'cloudflare']; const index = tabs.indexOf(button.dataset.vpnTab);
+    const tabs = ['connection', 'cloudflare']; const index = tabs.indexOf(button.dataset.vpnTab);
     if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
       event.preventDefault(); selectVPNTab(event.key === 'Home' ? tabs[0] : event.key === 'End' ? tabs[tabs.length - 1] : tabs[(index + (event.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length], true);
     }
@@ -209,9 +209,9 @@ function preserveListInteraction(target, key) {
 }
 
 async function refreshProfiles() {
-  const [runtime, profiles] = await Promise.all([api('runtime'),api('profiles')]);
+  const [runtime, profiles, assignments] = await Promise.all([api('runtime'),api('profiles'), appRole === 'administrator' ? api('hub-apps').catch(error => ({error: error.message})) : Promise.resolve(null)]);
   document.querySelector('#runtime-state').textContent = runtime.enabled ? t("VPN runtime enabled · status checked now") : t("Preview · tunnel startup is blocked. No traffic uses the VPN yet.");
-  if (!gatewayRefresh) {
+  if (vpnTab === 'cloudflare' && !gatewayRefresh) {
     gatewayRefresh = refreshSharedApps(profiles).catch(error => notice(error.message)).finally(() => { gatewayRefresh = null; });
   }
   const activeProfile = profiles.find(profile => profile.healthy) || profiles.find(profile => profile.state === 'starting');
@@ -248,9 +248,56 @@ async function refreshProfiles() {
     more.append(forwarding);
     const remove = controls.querySelector('.danger'); if (remove) more.append(remove);
     more.ontoggle = () => { if (!more.isConnected) return; if (more.open) expandedProfiles.add(profile.id); else expandedProfiles.delete(profile.id); };
-    details.append(more); item.append(details,controls); target.append(item);
+    details.append(more);
+    if (assignments) details.append(profileApps(profile, profiles, assignments, runtime.enabled));
+    item.append(details,controls); target.append(item);
   }
+  const reset = document.querySelector('#reset-app-assignments');
+  reset.hidden = appRole !== 'administrator' || !assignments?.apps?.some(app => app.enabled !== false || app.pending);
+  reset.onclick = () => action(reset, async () => {
+    if (!confirm(t('Remove all app VPN assignments? MediaSeed stops; Plex and Jellyfin return to their normal network. VPN profiles and domains are kept.'))) return;
+    const latest = await api('hub-apps');
+    const failures = [];
+    for (const app of latest.apps || []) {
+      if (app.enabled == null) { failures.push(app.name + ': ' + t('Status unavailable')); continue; }
+      if (app.enabled !== true && !app.pending) continue;
+      try { await api('hub-apps/' + app.id, {enabled: false, profileId: app.profileId || null}, 'PUT'); }
+      catch (error) { failures.push(app.name + ': ' + error.message); }
+    }
+    await refresh();
+    notice(failures.length ? failures.join(' · ') : t('App assignments removed. Choose apps on each connection.'), failures.length ? 'danger' : 'success');
+  });
   restoreInteraction();
+}
+
+function profileApps(profile, profiles, assignments, runtimeEnabled) {
+  const box = node('fieldset', undefined, 'profile-apps');
+  box.append(node('legend', t('Apps on this connection')));
+  if (assignments.error) { box.append(node('p', assignments.error, 'muted')); return box; }
+  if (!assignments.apps?.length) { box.append(node('p', t('Install an app in MediaHub to assign it here.'), 'muted')); return box; }
+  for (const app of assignments.apps) {
+    const label = node('label', undefined, 'profile-app-choice');
+    const input = node('input'); input.type = 'checkbox';
+    input.checked = (app.enabled === true || app.pending) && app.profileId === profile.id;
+    input.disabled = !runtimeEnabled || app.enabled == null || (app.id === 'mediaseed' && !profile.port_forwarding);
+    const description = node('span'); description.append(node('strong', app.name));
+    const other = (app.enabled || app.pending) && app.profileId !== profile.id;
+    const status = app.enabled == null ? t('Status unavailable') : app.id === 'mediaseed' && !profile.port_forwarding ? t('Enable NAT-PMP in profile details first.') : other ? t('Uses {0}', {0: profiles.find(item => item.id === app.profileId)?.name || t('another connection')}) : input.checked ? t(app.ready ? 'Connected' : 'Waiting for verified VPN') : t('Not assigned');
+    description.append(node('small', status)); label.append(input, description); box.append(label);
+    if (app.pending && app.profileId === profile.id) {
+      description.append(node('small', t('Assignment not confirmed. Retry or remove it.')));
+      box.append(control(t('Retry assignment'), async () => { await api('hub-apps/' + app.id, {enabled: true, profileId: profile.id}, 'PUT'); await refresh(); }));
+    }
+    input.onchange = () => action(input, async () => {
+      const enabled = input.checked;
+      if (enabled && other && !confirm(t('Move {0} to {1}? Its connection will briefly restart.', {0: app.name, 1: profile.name}))) { input.checked = false; return; }
+      try {
+        await api('hub-apps/' + app.id, {enabled, profileId: profile.id}, 'PUT');
+        notice(t('App connection saved.'), 'success');
+      } finally { await refresh(); }
+    });
+  }
+  return box;
 }
 async function refreshSharedApps(profiles) {
   if (globalThis.MediaVPNGateway) return globalThis.MediaVPNGateway.refresh(profiles);

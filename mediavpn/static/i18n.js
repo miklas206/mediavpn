@@ -1,6 +1,21 @@
 // Account language; English source keys and Danish translations.
 (() => {
 const messages = {
+  "Assignment not confirmed. Retry or remove it.": "Tilknytningen er ikke bekræftet. Prøv igen, eller fjern den.",
+  "Retry assignment": "Prøv tilknytning igen",
+  "Apps on this connection": "Apps på denne forbindelse",
+  "Install an app in MediaHub to assign it here.": "Installér en app i MediaHub for at vælge den her.",
+  "Status unavailable": "Status utilgængelig",
+  "Enable NAT-PMP in profile details first.": "Aktivér først NAT-PMP under profilens detaljer.",
+  "Uses {0}": "Bruger {0}",
+  "another connection": "en anden forbindelse",
+  "Waiting for verified VPN": "Afventer verificeret VPN",
+  "Not assigned": "Ikke tilknyttet",
+  "Move {0} to {1}? Its connection will briefly restart.": "Flyt {0} til {1}? Appens forbindelse genstartes kortvarigt.",
+  "App connection saved.": "Appens forbindelse er gemt.",
+  "Remove app assignments": "Fjern app-tilknytninger",
+  "Remove all app VPN assignments? MediaSeed stops; Plex and Jellyfin return to their normal network. VPN profiles and domains are kept.": "Fjern alle app-tilknytninger? MediaSeed stopper; Plex og Jellyfin vender tilbage til deres normale netværk. VPN-profiler og domæner bevares.",
+  "App assignments removed. Choose apps on each connection.": "App-tilknytningerne er fjernet. Vælg apps på hver forbindelse.",
   "Back to MediaHub": "Tilbage til MediaHub",
   "Navigation layout": "Navigationslayout",
   "Open navigation": "Åbn navigation",
@@ -11,7 +26,7 @@ const messages = {
   "Bottom dock": "Dock nederst",
   "Compact menu": "Kompakt menu",
 
-  "MediaVPN 0.2.26": "MediaVPN 0.2.26",
+  "MediaVPN 0.2.27": "MediaVPN 0.2.27",
   "The server returned an invalid API response for {0} (HTTP {1}). Please try again.": "Serveren returnerede et ugyldigt API-svar fra {0} (HTTP {1}). Pr\u00f8v igen.",
   "Cloudflare": "Cloudflare",
   "Appearance": "Udseende",
