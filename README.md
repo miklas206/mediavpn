@@ -145,3 +145,9 @@ Recreated MediaSeed torrent clients inherit the approved source container RAM, s
 ### Theme-colored tab icon (0.2.16)
 
 The image Content Security Policy permits the generated SVG data favicon, so local theme choices and inherited MediaHub appearance update the browser tab icon. Script, style and connection policies remain same-origin only. Applies on fresh installs and ordinary app updates without configuration or database changes.
+
+### Cached source builds (0.2.17)
+
+The Docker build extracts a stable manifest of runtime and build dependencies from pyproject.toml in a separate stage. Release versions, static assets and application code do not change this manifest. Unchanged dependencies can therefore reuse their installed Docker layer. Dependency changes invalidate that layer automatically. The application package is installed separately with --no-deps --no-build-isolation --no-index using the already installed build tools, preserving package metadata and bundled assets without dependency downloads during that step.
+
+This applies on fresh installs and upgrades through the existing source update path; no new files, packages, mappings or migrations are required on the host. The first build creates the new cache layers, and later builds benefit while those layers remain cached. User configuration, credentials and data mounts are unchanged. Real update timing depends on cache availability, downloads and host capacity; it has not been benchmarked on the running server.
