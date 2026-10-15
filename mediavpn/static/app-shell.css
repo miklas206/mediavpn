@@ -89,3 +89,9 @@ body { font-size: 1rem; }
 @media(max-width:480px) { .topbar .app-settings-button { padding:8px; } .topbar .app-settings-button > span { display:none; } }
 
 @media(max-width:480px) { .topbar .app-navigation-toggle { width:34px; padding:8px; flex:none; } }
+
+:root[data-app-navigation^="dock-"] .app-navigation { border-radius:2px; border-top:2px solid var(--accent); box-shadow:none; }
+:root[data-app-navigation^="dock-"] .app-navigation button { border-radius:6px; font-weight:500; }
+:root[data-app-navigation^="dock-"] .app-nav-icon { position:relative; padding-left:8px; width:31px; height:22px; }
+:root[data-app-navigation^="dock-"] .app-nav-icon::before { content:""; position:absolute; left:0; top:0; bottom:0; width:2px; background:var(--accent); }
+:root[data-app-navigation^="dock-"] .app-navigation button:not([aria-pressed="true"]):not([aria-selected="true"]) { color:var(--muted); }

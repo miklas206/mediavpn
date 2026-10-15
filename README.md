@@ -1,5 +1,7 @@
 # MediaVPN
 
+MediaVPN 0.2.22 matches the supplied MediaHub dock reference: thin accent frame and top edge, accent rail beside each icon, muted inactive labels and a bordered selected button. App-specific destinations and navigation inheritance remain.
+
 MediaVPN 0.2.21 matches the MediaHub Apps 1440-pixel content width, keeps a stable text scale, and bounds VPN profile cards to 440 pixels. The 56-pixel header, icon navigation, active states and theme variants follow the Hub. A Back to MediaHub button chooses the configured LAN/browser Hub origin from the access context; standalone apps hide it. Navigation follows the signed-in MediaHub user (sidebar, topbar, top/bottom dock or launcher); Settings can save an app-specific override or restore inheritance. Overrides are stored per account in an additive SQLite table without changing theme preferences, profiles or credentials. Standalone navigation preferences are browser-local. Isolated Chromium verified all five layouts at widths 320–3840 pixels; this does not constitute a live installation check.
 
 Verified runtime observations match the active public IP against
