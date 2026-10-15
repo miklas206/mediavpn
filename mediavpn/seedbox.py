@@ -18,7 +18,7 @@ from mediavpn.diagnostics import container_fields, emit, error_fields, trace
 CLIENT_OWNER = "org.mediahub.mediavpn.seedbox"
 CLIENT_NAME = "mediavpn-mediaseed-client"
 ALLOWED_READS = {"app/version", "app/preferences", "torrents/info", "torrents/categories", "transfer/info", "torrents/properties", "torrents/files", "torrents/trackers", "sync/torrentPeers", "rss/items", "rss/torrent"}
-ALLOWED_WRITES = {"torrents/add", "torrents/start", "torrents/stop", "torrents/delete", "torrents/setShareLimits", "torrents/setFilePriority", "torrents/createCategory", "torrents/topPrio", "rss/addFeed", "rss/removeItem", "rss/refreshItem"}
+ALLOWED_WRITES = {"torrents/add", "torrents/start", "torrents/stop", "torrents/recheck", "torrents/delete", "torrents/setShareLimits", "torrents/setFilePriority", "torrents/createCategory", "torrents/topPrio", "rss/addFeed", "rss/removeItem", "rss/refreshItem"}
 
 RPC_CODE = """
 import base64,http.cookiejar,json,pathlib,re,sys,urllib.request,urllib.parse,urllib.error
@@ -133,7 +133,8 @@ class Seedbox:
             raise HTTPException(422, "Vaelg en VPN-profil")
         with self.lock:
             temporary = self.path.with_suffix(".tmp")
-            temporary.write_text(json.dumps({"enabled": enabled, "profileId": profile_id}))
+            settings = {**self.settings(), "enabled": enabled, "profileId": profile_id}
+            temporary.write_text(json.dumps(settings))
             temporary.chmod(0o600)
             temporary.replace(self.path)
             self.reconcile()
@@ -144,6 +145,37 @@ class Seedbox:
         if len(rows) > 1:
             raise ValueError("Multiple managed torrent clients")
         return rows[0] if rows else None
+
+    def download_limit(self):
+        value = self.settings().get("maxActiveDownloads", 8)
+        if type(value) is not int or not 1 <= value <= 100:
+            raise ValueError("Invalid saved download limit")
+        return value
+
+    def queue_settings(self, limit=None):
+        with self.lock:
+            self.reconcile()
+            if not self.status()["ready"]:
+                raise HTTPException(409, "Connect a verified MediaVPN torrent client before changing download settings")
+            child = self.child()
+            if limit is not None:
+                if type(limit) is not int or not 1 <= limit <= 100:
+                    raise HTTPException(422, "Choose between 1 and 100 simultaneous downloads")
+                settings = {**self.settings(), "maxActiveDownloads": limit}
+                temporary = self.path.with_suffix(".tmp")
+                temporary.write_text(json.dumps(settings))
+                temporary.chmod(0o600)
+                temporary.replace(self.path)
+                self.execute(child, "app/setPreferences", "POST", {"json": json.dumps({"max_active_downloads": limit, "queueing_enabled": True})})
+            result = self.execute(child, "app/preferences", "GET", {})
+            try:
+                preferences = json.loads(base64.b64decode(result["body"]))
+                applied = preferences["max_active_downloads"]
+                if preferences.get("queueing_enabled") is not True or type(applied) is not int or applied != self.download_limit():
+                    raise ValueError()
+            except (ValueError, KeyError, TypeError):
+                raise HTTPException(503, "The saved download limit could not be verified. Refresh after reconnecting the torrent client.") from None
+            return {"maxActiveDownloads": applied, "queueingEnabled": True}
 
     def stop(self, remove=False):
         child = self.child()
@@ -205,11 +237,11 @@ class Seedbox:
                     self.create(vpn, generation, observed["forwardedPort"])
                     self.error = "Torrent client is restarting with its separate public port"
                     return
-                if preferences.get("current_network_interface") != "tun0" or preferences.get("listen_port") != observed["forwardedPort"] or preferences.get("upnp") or preferences.get("max_active_downloads") != 8 or not preferences.get("queueing_enabled"):
-                    self.execute(child, "app/setPreferences", "POST", {"json": json.dumps({"current_network_interface": "tun0", "listen_port": observed["forwardedPort"], "upnp": False, "random_port": False, "max_active_downloads": 8, "max_active_torrents": -1, "max_active_uploads": -1, "queueing_enabled": True, "rss_processing_enabled": True, "rss_auto_downloading_enabled": False})})
+                if preferences.get("current_network_interface") != "tun0" or preferences.get("listen_port") != observed["forwardedPort"] or preferences.get("upnp") or preferences.get("max_active_downloads") != self.download_limit() or not preferences.get("queueing_enabled"):
+                    self.execute(child, "app/setPreferences", "POST", {"json": json.dumps({"current_network_interface": "tun0", "listen_port": observed["forwardedPort"], "upnp": False, "random_port": False, "max_active_downloads": self.download_limit(), "max_active_torrents": -1, "max_active_uploads": -1, "queueing_enabled": True, "rss_processing_enabled": True, "rss_auto_downloading_enabled": False})})
                     response = self.execute(child, "app/preferences", "GET", {})
                     preferences = json.loads(base64.b64decode(response["body"]))
-                if preferences.get("current_network_interface") != "tun0" or preferences.get("listen_port") != observed["forwardedPort"] or preferences.get("upnp") or preferences.get("max_active_downloads") != 8 or not preferences.get("queueing_enabled") or not preferences.get("rss_processing_enabled") or preferences.get("rss_auto_downloading_enabled"):
+                if preferences.get("current_network_interface") != "tun0" or preferences.get("listen_port") != observed["forwardedPort"] or preferences.get("upnp") or preferences.get("max_active_downloads") != self.download_limit() or not preferences.get("queueing_enabled") or not preferences.get("rss_processing_enabled") or preferences.get("rss_auto_downloading_enabled"):
                     raise ValueError("Torrent interface or port not bound")
                 self.error = None
             except Exception as error:
@@ -387,6 +419,7 @@ class Seedbox:
             fields = {
                 "torrents/add": {"urls", "stopped", "paused", "savepath", "ratioLimit", "seedingTimeLimit", "shareLimitAction", "category", "tags"},
                 "torrents/start": {"hashes"}, "torrents/stop": {"hashes"},
+                "torrents/recheck": {"hashes"},
                 "torrents/delete": {"hashes", "deleteFiles"},
                 "torrents/setShareLimits": {"hashes", "ratioLimit", "seedingTimeLimit", "inactiveSeedingTimeLimit", "shareLimitAction"},
                 "torrents/setFilePriority": {"hash", "id", "priority"},

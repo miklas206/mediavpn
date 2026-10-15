@@ -151,3 +151,13 @@ The image Content Security Policy permits the generated SVG data favicon, so loc
 The Docker build extracts a stable manifest of runtime and build dependencies from pyproject.toml in a separate stage. Release versions, static assets and application code do not change this manifest. Unchanged dependencies can therefore reuse their installed Docker layer. Dependency changes invalidate that layer automatically. The application package is installed separately with --no-deps --no-build-isolation --no-index using the already installed build tools, preserving package metadata and bundled assets without dependency downloads during that step.
 
 This applies on fresh installs and upgrades through the existing source update path; no new files, packages, mappings or migrations are required on the host. The first build creates the new cache layers, and later builds benefit while those layers remain cached. User configuration, credentials and data mounts are unchanged. Real update timing depends on cache availability, downloads and host capacity; it has not been benchmarked on the running server.
+
+
+## MediaSeed checksum checking (0.2.18)
+
+The authenticated integration advertises `torrentCapabilities: ["recheck"]` and permits `torrents/recheck` for one validated 40- or 64-character torrent hash. Wildcards, batches, deletion flags and arbitrary fields remain rejected. Existing VPN readiness, machine authentication and fail-closed checks remain enforced. MediaSeed pauses and confirms the selected torrent before requesting the asynchronous checksum check; no download is started by this operation.
+
+Fresh installations and existing configuration use the same additive capability; no credential, profile, torrent data or storage migration is required. MediaVPN can be updated independently of Core and MediaSeed. Existing checking/download limits are preserved.
+
+
+The dedicated machine-authenticated GET/PUT `/api/integration/queue` accepts only an integer `maxActiveDownloads` from 1–100. It keeps queueing enabled and does not expose arbitrary native preferences. The desired value is saved atomically with existing Seedbox settings and verified against the client. Reconciliation uses the saved value (default eight for older installations); profile changes, tunnel recreation and app restarts retain it. Failed verification is reported, and the saved desired value can converge on the next verified reconciliation. File checking keeps its separate native limit.

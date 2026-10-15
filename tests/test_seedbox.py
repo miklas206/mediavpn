@@ -83,7 +83,8 @@ def test_missing_vpn_port_stops_client_and_never_creates(tmp_path):
     assert controller.error is not None
 
 
-def test_reconnect_replaces_network_namespace_and_updates_port(tmp_path):
+@pytest.mark.parametrize("saved_limit", [8, 3, 25])
+def test_reconnect_replaces_network_namespace_and_updates_port(tmp_path, saved_limit):
     import base64
     import json
     events = []
@@ -91,7 +92,7 @@ def test_reconnect_replaces_network_namespace_and_updates_port(tmp_path):
     runtime = SimpleNamespace(enabled=True, container=lambda identifier: vpn,
         status=lambda identifier: {"healthy": True, "forwardedPort": 54321, "publicIp": "8.8.8.8"})
     controller = Seedbox(runtime, tmp_path)
-    controller.path.write_text(json.dumps({"enabled": True, "profileId": "a" * 24}))
+    controller.path.write_text(json.dumps({"enabled": True, "profileId": "a" * 24, "maxActiveDownloads": saved_limit}))
     child = SimpleNamespace(labels={"org.mediahub.mediavpn.generation": "old-vpn:old-generation"},
         attrs={"State": {"Running": True}}, reload=lambda: None,
         stop=lambda **kwargs: events.append("stop old client"), remove=lambda: events.append("remove old container"))
@@ -118,6 +119,9 @@ def test_reconnect_replaces_network_namespace_and_updates_port(tmp_path):
     assert controller.status()["ready"]
     assert not any("torrents/" in str(event) for event in events)  # User-paused torrents stay paused.
 
+
+    assert preferences["max_active_downloads"] == saved_limit
+    assert controller.download_limit() == saved_limit
 
 def test_rpc_is_restricted_and_requires_readiness(tmp_path):
     controller = Seedbox(SimpleNamespace(enabled=False), tmp_path)
@@ -146,6 +150,26 @@ def test_settings_and_machine_token_survive_restart(tmp_path):
     restarted = Seedbox(SimpleNamespace(enabled=False), tmp_path)
     assert restarted.token_path.read_text() == original
     assert restarted.settings() == {"enabled": False, "profileId": None}
+
+
+def test_recheck_rpc_accepts_one_hash_only_and_keeps_vpn_gate(tmp_path):
+    controller = Seedbox(SimpleNamespace(enabled=False), tmp_path)
+    controller.reconcile = lambda: None
+    controller.status = lambda: {"ready": True}
+    controller.child = lambda: "synthetic"
+    calls = []
+    controller.execute = lambda child, path, method, payload, content: calls.append((path, payload)) or {"accepted": True}
+    assert controller.rpc("torrents/recheck", "POST", {"hashes": "a" * 40}) == {"accepted": True}
+    assert calls == [("torrents/recheck", {"hashes": "a" * 40})]
+    for payload in [{"hashes": "all"}, {"hashes": "a" * 40 + "|" + "b" * 40}, {"hashes": "a" * 40, "deleteFiles": "true"}]:
+        with pytest.raises(HTTPException) as error:
+            controller.rpc("torrents/recheck", "POST", payload)
+        assert error.value.status_code == 422
+    controller.status = lambda: {"ready": False}
+    with pytest.raises(HTTPException) as error:
+        controller.rpc("torrents/recheck", "POST", {"hashes": "a" * 40})
+    assert error.value.status_code == 409
+    assert len(calls) == 1
 
 
 def test_disconnect_removes_only_owned_client_and_preserves_volumes(tmp_path):

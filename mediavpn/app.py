@@ -312,7 +312,7 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
 
     @app.get("/healthz")
     def health():
-        return {"status": "healthy", "version": "0.2.17"}
+        return {"status": "healthy", "version": "0.2.18"}
 
     @app.get("/api/runtime")
     def runtime_status(session=Depends(authorized)):
@@ -472,7 +472,7 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
         state = seedbox.status()
         with database() as connection:
             profiles = connection.execute("SELECT id,name,port_forwarding FROM profiles ORDER BY name").fetchall()
-        return {**state, "profiles": [{**dict(profile), **runtime.status(profile["id"])} for profile in profiles]}
+        return {**state, "torrentCapabilities": ["recheck", "queue-settings"], "profiles": [{**dict(profile), **runtime.status(profile["id"])} for profile in profiles]}
 
     @app.get("/api/seedbox")
     def seedbox_status(session=Depends(authorized)):
@@ -524,6 +524,18 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
     @cause("hub", "torrent_settings_saved")
     def integration_settings(body: SeedboxSettings, session=Depends(machine_authorized)):
         return configure_seedbox(body)
+
+    class DownloadQueueSettings(BaseModel):
+        model_config = ConfigDict(extra="forbid")
+        maxActiveDownloads: int = Field(ge=1, le=100, strict=True)
+
+    @app.get("/api/integration/queue")
+    def integration_queue(session=Depends(machine_authorized)):
+        return seedbox.queue_settings()
+
+    @app.put("/api/integration/queue")
+    def integration_queue_settings(body: DownloadQueueSettings, session=Depends(machine_authorized)):
+        return seedbox.queue_settings(body.maxActiveDownloads)
 
     @app.post("/api/integration/rpc")
     def integration_rpc(body: TorrentRpc, session=Depends(machine_authorized)):
