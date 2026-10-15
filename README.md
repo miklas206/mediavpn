@@ -137,3 +137,7 @@ Latency probes run in the MediaVPN app process on its ordinary Docker bridge, no
 Country flags normalize historical region aliases and Proton's country-name variants to current ISO codes in both apps. All 145 country names in the checked public Proton catalog are covered by SVG-existence regression tests. Recommendation responses include totalCountries, and the UI states coverage and that endpoint selection remains a sample.
 
 Managed MediaHub Overview reads `GET /api/hub/overview` with a short-lived, package-bound SSO bearer scoped to `overview`. Current hub session and app role are verified for every request. The response contains up to 100 profile names, actual connection states/countries, automatic selection mode and the supported MediaSeed consumer binding/protection state. It exposes no WireGuard keys and never changes tunnels or clients. Overview grants do not create app sessions.
+
+## Resource limits (0.2.15)
+
+Recreated MediaSeed torrent clients inherit the approved source container RAM, swap, CPU quota/NanoCPU and CPU affinity. MediaHub uses the `org.mediahub.resources.client-limits=1` image capability to enable persistent app resource editing. No tunnel or running client is changed merely by upgrading Core; this app remains independently updated.

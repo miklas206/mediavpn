@@ -280,7 +280,18 @@ class Seedbox:
                 raise ValueError("Torrent preparation failed")
         finally:
             prep.remove(force=True)
-        client.containers.create(source.attrs["Image"], name=CLIENT_NAME, environment={"PUID": "1000", "PGID": "1000", "WEBUI_PORT": "8080", "TZ": "Europe/Copenhagen"}, volumes=volumes, network_mode="container:" + vpn.id, labels={CLIENT_OWNER: "mediaseed", "org.mediahub.mediavpn.generation": generation}, restart_policy={"Name": "no"}, security_opt=["no-new-privileges:true"], log_config={"Type": "json-file", "Config": {"max-size": "5m", "max-file": "2"}})
+        host = source.attrs.get("HostConfig", {})
+        resource_options = {}
+        if host.get("Memory", 0):
+            resource_options["mem_limit"] = host["Memory"]
+            resource_options["memswap_limit"] = host.get("MemorySwap") or host["Memory"]
+        if host.get("NanoCpus", 0):
+            resource_options["nano_cpus"] = host["NanoCpus"]
+        elif host.get("CpuQuota", 0) > 0:
+            resource_options.update(cpu_quota=host["CpuQuota"], cpu_period=host.get("CpuPeriod") or 100000)
+        if host.get("CpusetCpus"):
+            resource_options["cpuset_cpus"] = host["CpusetCpus"]
+        client.containers.create(source.attrs["Image"], name=CLIENT_NAME, environment={"PUID": "1000", "PGID": "1000", "WEBUI_PORT": "8080", "TZ": "Europe/Copenhagen"}, volumes=volumes, network_mode="container:" + vpn.id, labels={CLIENT_OWNER: "mediaseed", "org.mediahub.mediavpn.generation": generation}, **resource_options, restart_policy={"Name": "no"}, security_opt=["no-new-privileges:true"], log_config={"Type": "json-file", "Config": {"max-size": "5m", "max-file": "2"}})
 
     def status(self):
         with self.lock:

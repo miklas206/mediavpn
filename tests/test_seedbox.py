@@ -6,10 +6,11 @@ from fastapi import HTTPException
 from mediavpn.seedbox import Seedbox
 
 
+@pytest.mark.parametrize("resource_mode", ["unlimited", "cfs", "nano"])
 @pytest.mark.parametrize("project", ["mediahub-mediaseed", "mediaseed-preview"])
 @pytest.mark.parametrize("bad_owner", [False, True])
 @pytest.mark.parametrize("media", ["none", "approved", "mismatch", "readonly"])
-def test_client_creation_resolves_owned_compose_services_and_volumes(tmp_path, monkeypatch, project, bad_owner, media):
+def test_client_creation_resolves_owned_compose_services_and_volumes(tmp_path, monkeypatch, project, bad_owner, media, resource_mode):
     import json
     monkeypatch.setenv("MEDIAVPN_MEDIASEED_PROJECT", project)
     events = []
@@ -20,6 +21,8 @@ def test_client_creation_resolves_owned_compose_services_and_volumes(tmp_path, m
     def mount(name, target):
         return {"Type":"volume","Name":project+"_"+name,"Destination":target}
     source = container("qbittorrent", [mount("config","/config"),mount("downloads","/downloads")])
+    resources = {} if resource_mode == "unlimited" else {"Memory": 3*1024**3, "MemorySwap": 4*1024**3, "CpusetCpus": "0-3", **({"NanoCpus": 1500000000} if resource_mode == "nano" else {"CpuQuota": 150000, "CpuPeriod": 100000})}
+    source.attrs["HostConfig"] = resources
     app = container("app", [mount("secrets","/secrets")])
     if media != "none":
         monkeypatch.setenv("MEDIAVPN_MEDIASEED_STORAGE", json.dumps([{"id":"movies","label":"Movies","source":"/mnt/media/movies","path":"/downloads/media/movies"}]))
@@ -44,6 +47,14 @@ def test_client_creation_resolves_owned_compose_services_and_volumes(tmp_path, m
         assert created[0]["network_mode"] == "container:vpn-owned"
         assert created[0]["volumes"][project+"_downloads"]["bind"] == "/downloads"
         assert created[0]["volumes"][project+"_secrets"]["mode"] == "ro"
+        if resource_mode != "unlimited":
+            assert created[0]["mem_limit"] == 3*1024**3
+            assert created[0]["memswap_limit"] == 4*1024**3
+            assert created[0]["cpuset_cpus"] == "0-3"
+            assert created[0].get("nano_cpus") == (1500000000 if resource_mode == "nano" else None)
+            assert created[0].get("cpu_quota") == (150000 if resource_mode == "cfs" else None)
+        else:
+            assert "mem_limit" not in created[0] and "nano_cpus" not in created[0]
         if media == "approved":
             assert created[0]["volumes"]["/mnt/media/movies"] == {"bind":"/downloads/media/movies", "mode":"rw"}
 
