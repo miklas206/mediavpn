@@ -1,7 +1,16 @@
 // Account language; English source keys and Danish translations.
 (() => {
 const messages = {
-  "MediaVPN 0.2.19": "MediaVPN 0.2.19",
+  "Navigation layout": "Navigationslayout",
+  "Open navigation": "Åbn navigation",
+  "Follow MediaHub": "Følg MediaHub",
+  "Sidebar": "Sidepanel",
+  "Top navigation": "Topnavigation",
+  "Top dock": "Dock øverst",
+  "Bottom dock": "Dock nederst",
+  "Compact menu": "Kompakt menu",
+
+  "MediaVPN 0.2.20": "MediaVPN 0.2.20",
   "The server returned an invalid API response for {0} (HTTP {1}). Please try again.": "Serveren returnerede et ugyldigt API-svar fra {0} (HTTP {1}). Pr\u00f8v igen.",
   "Cloudflare": "Cloudflare",
   "Appearance": "Udseende",

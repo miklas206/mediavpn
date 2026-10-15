@@ -110,6 +110,8 @@
   }
   function applyIdentity(identity) {
     if (savingOverride) return;
+    globalThis.MediaAppIdentity = identity;
+    window.dispatchEvent(new CustomEvent('mediahub-identity', {detail: identity}));
     const wasManaged = managed;
     managed = identity?.managed === true;
     select.disabled = managed && !overrideHandler; select.hidden = false; follow.hidden = !managed; inheritedName.hidden = !managed;

@@ -1,5 +1,7 @@
 # MediaVPN
 
+MediaVPN 0.2.20 automatically adapts workspace width, text and spacing to the screen, with the common 56-pixel desktop header and left-aligned brand. Navigation follows the signed-in MediaHub user (sidebar, topbar, top/bottom dock or launcher); Settings can save an app-specific override or restore inheritance. Overrides are stored per account in an additive SQLite table without changing theme preferences, profiles or credentials. Standalone navigation preferences are browser-local. Isolated Chromium verified all five layouts at widths 320–3840 pixels; this does not constitute a live installation check.
+
 Verified runtime observations match the active public IP against
 [Proton's published geofeed](https://ip.me/static/geofeeds/geofeed-mm.csv),
 following [FjordVPN's location approach](https://github.com/qlerup/fjordvpn/blob/main/relay/observer.py).

@@ -51,6 +51,8 @@ def test_managed_login_roles_revocation_and_one_time_callback(tmp_path, monkeypa
         assert identity["id"] == "member" and identity["role"] == "administrator"
         assert client.post("/api/profiles/" + "a" * 24 + "/start").status_code == 403
         client.headers["X-MediaVPN-CSRF"] = identity["csrf"]
+        assert client.put("/api/auth/navigation", json={"navigationOverride": "sidebar"}).status_code == 200
+        assert client.get("/api/auth/me").json()["navigationOverride"] == "sidebar"
         assert client.get("/api/profiles").status_code == 200
         for role in ["user", "viewer"]:
             assert client.get("/api/profiles").status_code == 200

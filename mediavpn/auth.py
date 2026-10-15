@@ -8,7 +8,7 @@ from argon2.exceptions import VerificationError
 from fastapi import HTTPException, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
 
-from mediavpn.appearance import install_theme_preferences, theme_override
+from mediavpn.appearance import install_theme_preferences, navigation_override, theme_override
 from mediavpn.hub_auth import HubLogin
 
 HASHER = PasswordHasher()
@@ -35,7 +35,7 @@ def install_auth(app, database, base, hub_transport=None):
         with database() as connection:
             account = connection.execute("SELECT language FROM accounts LIMIT 1").fetchone()
         public = await hub.identity(digest) if hub.enabled else {"role": "administrator", "language": account[0] if account else "en"}
-        if request.method not in {"GET", "HEAD"} and request.url.path not in {"/api/auth/logout", "/api/auth/preferences"} and public["role"] != "administrator":
+        if request.method not in {"GET", "HEAD"} and request.url.path not in {"/api/auth/logout", "/api/auth/preferences", "/api/auth/navigation"} and public["role"] != "administrator":
             raise HTTPException(403, "App administrator access required")
         if request.method not in {"GET", "HEAD"} and not secrets.compare_digest(request.headers.get("X-MediaVPN-CSRF", ""), session["csrf"]):
             raise HTTPException(403, "Sessionen kunne ikke verificeres")
@@ -91,7 +91,7 @@ def install_auth(app, database, base, hub_transport=None):
 
     @app.get("/api/auth/me")
     def me(session=Depends(authorized)):
-        return {"managed": hub.enabled, "themeOverride": theme_override(database, session.get("id")), **{key: session[key] for key in ("csrf", "id", "username", "role", "language", "appearance", "theme") if key in session}}
+        return {"managed": hub.enabled, "themeOverride": theme_override(database, session.get("id")), "navigationOverride": navigation_override(database, session.get("id")), **{key: session[key] for key in ("csrf", "id", "username", "role", "language", "appearance", "theme") if key in session}}
 
     @app.post("/api/auth/logout")
     def logout(response: Response, session=Depends(authorized)):
