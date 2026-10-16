@@ -1,5 +1,9 @@
 # MediaVPN
 
+## 0.2.29 - independent Plex remote access
+
+Plex can use a separately renewed Proton TCP port without Cloudflare credentials or public web domains. A Plex-only gateway starts no web listener and retains the existing VPN profile, app assignments and stored domains. MediaHub 0.6.41 controls this independent choice; fresh installations and older settings use the same additive configuration path.
+
 ## 0.2.28 — status reads and connection workflows
 
 Connection creation is split into configuration, usage and review. Apps can be selected during creation or later on their connection card. The review explicitly distinguishes saving a stopped connection from starting one for selected apps. Existing assignments require confirmation before a move. Gateway setup is accessible from each profile and keeps the existing Traefik/Cloudflare guide and selected-profile configuration.

@@ -114,7 +114,7 @@ globalThis.MediaVPNGateway = (() => {
     if (!state.available) return;
     const card = element('section', undefined, 'plex-port-card'); card.append(element('h3', t('Plex remote access')));
     const toggle = element('input'); toggle.type = 'checkbox'; toggle.checked = state.enabled;
-    toggle.disabled = saving || (!state.enabled && (!state.available || !data?.enabled));
+    toggle.disabled = saving || (!state.enabled && !state.available);
     toggle.onchange = async () => {
       if (saving) return;
       saving = true;

@@ -134,13 +134,15 @@ class WebGateway:
             if not body.profileId:
                 raise HTTPException(422, "Choose a gateway VPN profile")
             try:
-                normalized = validate_routes([row.model_dump() for row in body.routes])
+                normalized = validate_routes([row.model_dump() for row in body.routes]) if body.routes else []
             except (ValueError, KeyError, TypeError, UnicodeError):
                 raise HTTPException(
                     422, "Choose valid unique domains and private installed app origins"
                 ) from None
+            if not normalized and not body.plex:
+                raise HTTPException(422, "Choose an app domain or Plex remote access")
             if (
-                not body.cloudflareToken
+                normalized and not body.cloudflareToken
                 and not (self.directory / "http-config/cloudflare-token").exists()
             ):
                 raise HTTPException(
@@ -353,7 +355,7 @@ class WebGateway:
                     ("plex-lease", "plex", "plex_port.py"),
                 ):
                     row = self.helper(role)
-                    if (role == "torrent-lease" and not self.torrent_enabled()) or (role == "plex-lease" and not state.get("plex")):
+                    if (role == "web" and not state["routes"]) or (role == "torrent-lease" and not self.torrent_enabled()) or (role == "plex-lease" and not state.get("plex")):
                         if row:
                             row.stop(timeout=8)
                             row.remove(v=False)
@@ -519,7 +521,8 @@ class WebGateway:
             and observed.get("forwardedPort")
         )
         report = self.report("http", state, observed) if provider else {}
-        ready = bool(report.get("ready"))
+        plex = self.plex_status(state, observed)
+        ready = bool(report.get("ready")) if state["routes"] else plex["ready"]
         certs = {
             row["id"]: row.get("certificateReady", False)
             for row in report.get("routes", [])
@@ -540,7 +543,9 @@ class WebGateway:
             "message": self.error
             or status_message
             or (
-                "Gateway TLS is ready; public domain checks are performed by MediaHub"
+                "Plex port configured; public reachability is checked by MediaHub"
+                if ready and not state["routes"]
+                else "Gateway TLS is ready; public domain checks are performed by MediaHub"
                 if ready
                 else "Waiting for VPN, gateway or HTTPS certificates"
             ),
@@ -550,7 +555,7 @@ class WebGateway:
             "checkedAt": time.time(),
             "maximumProviderConnections": 1,
             "plex": state.get("plex"),
-            "plexPort": self.plex_status(state, observed),
+            "plexPort": plex,
             "torrentReady": bool(torrent and torrent.get("ready")),
             "torrentPort": torrent.get("publicPort") if torrent else None,
             "prerequisites": prerequisites["checks"],

@@ -111,6 +111,35 @@ def controlled(tmp_path):
     return gateway, runtime, docker, vpn, observation
 
 
+@pytest.mark.parametrize("older", [False, True])
+def test_plex_only_gateway_needs_no_cloudflare_or_web_listener(controlled, older):
+    gateway, runtime, docker, _, _ = controlled
+    token = gateway.directory / "http-config/cloudflare-token"
+    token.unlink()
+    if older:
+        gateway.reconcile()
+    gateway.torrent_enabled = lambda: False
+    body = WebSettings(enabled=True, profileId=PROFILE, plex={"address": "192.168.1.20", "port": 32400})
+    gateway.configure(body)
+    restored = WebGateway(runtime, gateway.directory.parent)
+    assert restored.settings()["plex"] == body.plex.model_dump()
+    assert restored.settings()["routes"] == []
+    restored.reconcile()
+    assert not restored.error
+    assert [row.labels[ROLE] for row in docker.rows] == ["plex-lease"]
+    assert not token.exists()
+    assert restored.targets() == ["192.168.1.20/32"]
+    restored.configure(WebSettings(enabled=False, profileId=PROFILE))
+    restored.reconcile()
+    assert not docker.rows
+
+
+def test_enabled_gateway_requires_a_domain_or_plex(controlled):
+    gateway = controlled[0]
+    with pytest.raises(HTTPException, match="Choose an app domain or Plex remote access"):
+        gateway.configure(WebSettings(enabled=True, profileId=PROFILE))
+
+
 @pytest.mark.parametrize(
     "upstream",
     [
