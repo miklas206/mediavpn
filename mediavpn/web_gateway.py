@@ -448,7 +448,7 @@ class WebGateway:
             )
             vpn = self.runtime.container(state["profileId"])
             vpn.reload()
-            helper = self.helper("web" if kind == "http" else "torrent-lease")
+            helper = self.helper({"http": "web", "nat": "torrent-lease", "plex": "plex-lease"}[kind])
             if not helper:
                 return {}
             helper.reload()

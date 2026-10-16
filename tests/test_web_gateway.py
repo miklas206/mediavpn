@@ -113,7 +113,7 @@ def controlled(tmp_path):
 
 @pytest.mark.parametrize("older", [False, True])
 def test_plex_only_gateway_needs_no_cloudflare_or_web_listener(controlled, older):
-    gateway, runtime, docker, _, _ = controlled
+    gateway, runtime, docker, vpn, _ = controlled
     token = gateway.directory / "http-config/cloudflare-token"
     token.unlink()
     if older:
@@ -129,6 +129,17 @@ def test_plex_only_gateway_needs_no_cloudflare_or_web_listener(controlled, older
     assert [row.labels[ROLE] for row in docker.rows] == ["plex-lease"]
     assert not token.exists()
     assert restored.targets() == ["192.168.1.20/32"]
+    state = restored.settings()
+    observed = runtime.status(PROFILE)
+    save(restored.directory / "plex-state/status.json", {
+        "ready": True, "revision": state["revision"], "generation": restored.generation(vpn),
+        "publicIp": observed["publicIp"], "publicPort": 50003, "webPort": observed["forwardedPort"],
+        "checkedAt": time.time(), "expiresAt": time.time() + 60,
+        "targetAddress": "192.168.1.20", "targetPort": 32400,
+    })
+    assert restored.plex_status(state, observed)["ready"]
+    restored.helper("plex-lease").attrs["State"]["Running"] = False
+    assert not restored.plex_status(state, observed)["ready"]
     restored.configure(WebSettings(enabled=False, profileId=PROFILE))
     restored.reconcile()
     assert not docker.rows
@@ -514,7 +525,7 @@ def test_without_installed_selected_torrent_app_no_lease_helper_is_started(contr
 
 
 def test_wrong_shared_profile_cannot_expose_another_provider(controlled):
-    gateway, runtime, docker, _, _ = controlled
+    gateway, runtime, docker, vpn, _ = controlled
     runtime.shared_profile = lambda: "b" * 24
     gateway.reconcile()
     assert not docker.created

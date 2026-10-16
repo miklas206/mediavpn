@@ -1,5 +1,9 @@
 # MediaVPN
 
+## 0.2.30 - verify the Plex lease owner
+
+Plex forwarding checks its own lease helper instead of the torrent helper. A verified Plex-only lease can now be applied and advertised by Plex when torrent forwarding is absent. Stopped or stale Plex helpers remain unverified.
+
 ## 0.2.29 - independent Plex remote access
 
 Plex can use a separately renewed Proton TCP port without Cloudflare credentials or public web domains. A Plex-only gateway starts no web listener and retains the existing VPN profile, app assignments and stored domains. MediaHub 0.6.41 controls this independent choice; fresh installations and older settings use the same additive configuration path.
