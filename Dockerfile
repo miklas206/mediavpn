@@ -6,6 +6,7 @@ RUN python -c "import pathlib,tomllib; p=tomllib.loads(pathlib.Path('pyproject.t
 
 FROM python:3.12-slim
 LABEL org.mediahub.resources.client-limits="1"
+LABEL org.mediahub.mediavpn.nas-storage="rslave-v1"
 WORKDIR /app
 COPY --from=dependency-manifest /manifest/requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt

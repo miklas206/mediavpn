@@ -336,7 +336,10 @@ class Seedbox:
                 if (len(matches) != 1 or matches[0].get("Type") != "bind"
                         or matches[0].get("Source") != row["source"] or not matches[0].get("RW")):
                     raise ValueError("MediaSeed media mount ownership changed")
-            volumes[row["source"]] = {"bind": row["path"], "mode": "rw"}
+            # A NAS view has a shared parent. Receive host reconnections without
+            # granting the torrent client permission to propagate mounts back.
+            mode = "rw,rslave" if re.fullmatch(r"nas-[a-f0-9]{24}", row["id"]) else "rw"
+            volumes[row["source"]] = {"bind": row["path"], "mode": mode}
         source.stop(timeout=15)
         resolver = self.data / "seedbox-resolv.conf"
         resolver.write_text("nameserver 127.0.0.1\noptions timeout:2 attempts:2\n")

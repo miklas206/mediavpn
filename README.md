@@ -225,3 +225,8 @@ invalidate old cached shell assets on upgrade; no settings migration is needed.
 Local isolated-browser verification compares computed dock/topbar styles with
 MediaHub's actual frontend CSS for five looks, and checks all five navigation
 layouts at 320, 1440 and 3840 pixels. No live deployment is implied.
+
+
+### NAS mounts from MediaHub
+
+From 0.2.31, approved `nas-<id>` MediaSeed storage views use one-way `rslave` bind propagation in the VPN torrent client. NAS reconnections remain visible without changing the VPN namespace, client identity or existing local media mounts. MediaHub 0.6.59 prepares the shared view; the image advertises `org.mediahub.mediavpn.nas-storage=rslave-v1`.

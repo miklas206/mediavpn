@@ -9,7 +9,7 @@ from mediavpn.seedbox import Seedbox
 @pytest.mark.parametrize("resource_mode", ["unlimited", "cfs", "nano"])
 @pytest.mark.parametrize("project", ["mediahub-mediaseed", "mediaseed-preview"])
 @pytest.mark.parametrize("bad_owner", [False, True])
-@pytest.mark.parametrize("media", ["none", "approved", "mismatch", "readonly"])
+@pytest.mark.parametrize("media", ["none", "approved", "mismatch", "readonly", "nas"])
 def test_client_creation_resolves_owned_compose_services_and_volumes(tmp_path, monkeypatch, project, bad_owner, media, resource_mode):
     import json
     monkeypatch.setenv("MEDIAVPN_MEDIASEED_PROJECT", project)
@@ -25,9 +25,10 @@ def test_client_creation_resolves_owned_compose_services_and_volumes(tmp_path, m
     source.attrs["HostConfig"] = resources
     app = container("app", [mount("secrets","/secrets")])
     if media != "none":
-        monkeypatch.setenv("MEDIAVPN_MEDIASEED_STORAGE", json.dumps([{"id":"movies","label":"Movies","source":"/mnt/media/movies","path":"/downloads/media/movies"}]))
-        source.attrs["Mounts"].append({"Type":"bind","Source":"/mnt/media/movies","Destination":"/downloads/media/movies","RW":True})
-        app.attrs["Mounts"].append({"Type":"bind","Source":"/wrong" if media == "mismatch" else "/mnt/media/movies","Destination":"/downloads/media/movies","RW":media != "readonly"})
+        storage_id = "nas-" + "a" * 24 if media == "nas" else "movies"
+        monkeypatch.setenv("MEDIAVPN_MEDIASEED_STORAGE", json.dumps([{"id":storage_id,"label":"Movies","source":"/mnt/media/movies","path":"/downloads/media/" + storage_id}]))
+        source.attrs["Mounts"].append({"Type":"bind","Source":"/mnt/media/movies","Destination":"/downloads/media/" + storage_id,"RW":True})
+        app.attrs["Mounts"].append({"Type":"bind","Source":"/wrong" if media == "mismatch" else "/mnt/media/movies","Destination":"/downloads/media/" + storage_id,"RW":media != "readonly"})
     def listing(all, filters):
         assert "com.docker.compose.project="+project in filters["label"]
         return [source if "com.docker.compose.service=qbittorrent" in filters["label"] else app]
@@ -55,8 +56,8 @@ def test_client_creation_resolves_owned_compose_services_and_volumes(tmp_path, m
             assert created[0].get("cpu_quota") == (150000 if resource_mode == "cfs" else None)
         else:
             assert "mem_limit" not in created[0] and "nano_cpus" not in created[0]
-        if media == "approved":
-            assert created[0]["volumes"]["/mnt/media/movies"] == {"bind":"/downloads/media/movies", "mode":"rw"}
+        if media in {"approved", "nas"}:
+            assert created[0]["volumes"]["/mnt/media/movies"] == {"bind":"/downloads/media/" + storage_id, "mode":"rw,rslave" if media == "nas" else "rw"}
 
 
 def test_unicode_download_paths_stay_inside_approved_mounts(tmp_path, monkeypatch):
