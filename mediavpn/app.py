@@ -67,6 +67,11 @@ class TorrentRpc(BaseModel):
     payload: dict[str, str | int | float | bool] = Field(default_factory=dict, max_length=20)
 
 
+class PlexPeer(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    peerId: str = Field(pattern=r"^[A-Za-z0-9_-]{1,80}$")
+
+
 class RelayPeer(BaseModel):
     model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
     id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,80}$")
@@ -337,7 +342,7 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
 
     @app.get("/healthz")
     def health():
-        return {"status": "healthy", "version": "0.2.30"}
+        return {"status": "healthy", "version": "0.2.32"}
 
     @app.get("/api/runtime")
     def runtime_status(session=Depends(authorized)):
@@ -519,6 +524,27 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
             wakeup.set()
             return relay.public()
 
+    @app.put("/api/integration/shared/profiles/{identifier}/plex")
+    def profile_plex(identifier: str, body: PlexPeer, session=Depends(shared_machine_authorized)):
+        with lock, seedbox.lock:
+            selected = find(identifier)
+            relay = relays.get(identifier)
+            if not selected["port_forwarding"] or not relay:
+                raise HTTPException(409, "Plex needs its prepared port-forwarding VPN profile")
+            seed = seedbox.settings()
+            if seed.get("enabled") and seed.get("profileId") == identifier:
+                raise HTTPException(409, "The profile port already belongs to MediaSeed; choose a separate Plex profile")
+            result = relay.configure_plex(body.peerId)
+            wakeup.set()
+            return result
+
+    @app.delete("/api/integration/shared/profiles/{identifier}/plex")
+    def profile_plex_remove(identifier: str, session=Depends(shared_machine_authorized)):
+        with lock:
+            find(identifier)
+            relay = relays.get(identifier)
+            return relay.configure_plex(None) if relay else {"plexPort": {"ready": False}}
+
     @app.post("/api/integration/shared/profiles/{identifier}/peers")
     def profile_relay_peer(identifier: str, body: RelayPeer, session=Depends(shared_machine_authorized)):
         find(identifier)
@@ -582,6 +608,9 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
         diagnostics.record("request.torrent_settings", enabled=body.enabled, profile=body.profileId)
         if body.enabled:
             profile = find(body.profileId)
+            relay = relays.get(body.profileId)
+            if relay and relay.settings().get("plexPeer"):
+                raise HTTPException(409, "The profile port belongs to Plex; choose a separate MediaSeed profile")
             if not profile["port_forwarding"]:
                 raise HTTPException(409, "Aktiver Proton port-forwarding paa profilen foerst")
         return seedbox.configure(body.profileId, body.enabled)

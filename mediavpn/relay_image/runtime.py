@@ -12,6 +12,11 @@ import sys
 import time
 from pathlib import Path
 
+try:
+    from . import plex_forward
+except ImportError:
+    import plex_forward
+
 CONFIG = Path(os.environ.get("RELAY_CONFIG", "/config/settings.json"))
 stop = False
 
@@ -63,6 +68,7 @@ def validate(value):
             if ip not in address.network or ip == address.ip or str(ip) in seen:
                 raise ValueError("Invalid or duplicate peer address")
             seen.add(str(ip))
+    plex_forward.validate(value)
     return value
 
 
@@ -336,6 +342,7 @@ def main():
         time.sleep(1)
         if value["mode"] == "gateway":
             apply_firewall(value)
+            plex_forward.apply(value)
         incoming = CONFIG.read_bytes()
         if incoming != fingerprint:
             updated = validate(json.loads(incoming))
@@ -350,6 +357,8 @@ def main():
             current.write_text(wireguard(updated))
             command("wg", "syncconf", interface, str(current))
             value, fingerprint = updated, incoming
+    if value["mode"] == "gateway":
+        plex_forward.apply({"mode": "gateway"})
     # Keep the namespace's DROP rules; stopping a relay never enables direct egress.
     command("ip", "link", "delete", interface, check=False)
     if userspace:
@@ -366,6 +375,11 @@ if __name__ == "__main__":
     try:
         sys.exit(main())
     except Exception:
+        try:
+            if json.loads(CONFIG.read_text()).get("mode") == "gateway":
+                plex_forward.apply({"mode": "gateway"})
+        except Exception:
+            pass
         # Configuration includes keys: neither exceptions nor values are logged.
         print("VPN relay could not be verified; internet traffic remains blocked", file=sys.stderr)
         sys.exit(1)

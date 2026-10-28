@@ -10,6 +10,7 @@ import json
 import os
 import secrets
 import threading
+import time
 from pathlib import Path
 
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
@@ -194,6 +195,30 @@ class SharedGateway:
                 self.write_config(state)
             return self.public()
 
+    def configure_plex(self, peer_id):
+        with self.lock:
+            state = self.settings()
+            if peer_id is not None:
+                if not self.scope or not state["enabled"] or not any(p["id"] == peer_id for p in state["peers"]):
+                    raise HTTPException(409, "Plex needs its registered dedicated VPN peer")
+                if state.get("plexPeer") not in (None, peer_id):
+                    raise HTTPException(409, "This VPN port already belongs to another Plex peer")
+            state["plexPeer"] = peer_id
+            save(self.path, state)
+            self.write_config(state)
+            return self.public()
+
+    def plex_endpoint(self, state, observed):
+        peer = next((p for p in state["peers"] if p["id"] == state.get("plexPeer")), None)
+        port = observed.get("forwardedPort")
+        address = observed.get("publicIp")
+        if (not peer or not state["enabled"] or not observed.get("healthy")
+                or type(port) is not int or not 1024 <= port <= 65535
+                or not address or not ipaddress.ip_address(address).is_global):
+            return None
+        return {"address": peer["address"], "publicPort": port,
+                "publicIp": address, "expiresAt": time.time() + 45}
+
     def write_config(self, state):
         keys = json.loads((self.data / "keys.json").read_text())
         save(
@@ -203,6 +228,7 @@ class SharedGateway:
                 "privateKey": keys["privateKey"],
                 "address": "10.250.87.1/24",
                 "listenPort": 51879,
+                "plexForward": self.plex_endpoint(state, self.runtime.status(state["profileId"])) if state.get("plexPeer") else None,
                 "peers": [
                     {"publicKey": p["publicKey"], "address": p["address"]}
                     for p in state["peers"]
@@ -216,7 +242,7 @@ class SharedGateway:
         fingerprint = hashlib.sha256(
             b"".join(
                 (source / name).read_bytes().replace(b"\r\n", b"\n")
-                for name in ["Dockerfile", "runtime.py"]
+                for name in ["Dockerfile", "runtime.py", "plex_forward.py"]
             )
         ).hexdigest()
         try:
@@ -340,7 +366,11 @@ class SharedGateway:
                     )
             except Exception:
                 pass
+        endpoint = self.plex_endpoint(state, observed)
         return {
+            "plexPort": {"ready": bool(ready and endpoint),
+                         "publicIp": endpoint["publicIp"] if endpoint else None,
+                         "publicPort": endpoint["publicPort"] if endpoint else None},
             "enabled": state["enabled"],
             "profileId": state["profileId"],
             "ready": bool(ready),
