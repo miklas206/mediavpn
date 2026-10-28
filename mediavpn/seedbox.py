@@ -13,14 +13,16 @@ from pathlib import Path, PurePosixPath
 
 from fastapi import HTTPException
 
+from mediavpn.move_location import PREPARE_MOVE_CODE
+
 from mediavpn.diagnostics import container_fields, emit, error_fields, trace
 
 CLIENT_OWNER = "org.mediahub.mediavpn.seedbox"
 CLIENT_NAME = "mediavpn-mediaseed-client"
 ALLOWED_READS = {"app/version", "app/preferences", "torrents/info", "torrents/categories", "transfer/info", "torrents/properties", "torrents/files", "torrents/trackers", "sync/torrentPeers", "rss/items", "rss/torrent"}
-ALLOWED_WRITES = {"torrents/add", "torrents/start", "torrents/stop", "torrents/recheck", "torrents/delete", "torrents/setShareLimits", "torrents/setFilePriority", "torrents/createCategory", "torrents/topPrio", "rss/addFeed", "rss/removeItem", "rss/refreshItem"}
+ALLOWED_WRITES = {"torrents/setLocation", "torrents/add", "torrents/start", "torrents/stop", "torrents/recheck", "torrents/delete", "torrents/setShareLimits", "torrents/setFilePriority", "torrents/createCategory", "torrents/topPrio", "rss/addFeed", "rss/removeItem", "rss/refreshItem"}
 
-RPC_CODE = """
+RPC_CODE = PREPARE_MOVE_CODE + """
 import base64,http.cookiejar,json,pathlib,re,sys,urllib.request,urllib.parse,urllib.error
 body=json.loads(base64.b64decode(sys.argv[1]))
 endpoint='http://127.0.0.1:8080/api/v2/'
@@ -35,10 +37,11 @@ try:
     password=pathlib.Path('/secrets/qbit-password').read_text().strip()
     send('auth/login',urllib.parse.urlencode({'username':'mediaseed','password':password}).encode())
     payload=body.get('payload') or {}
-    destination=payload.get('savepath',payload.get('savePath'))
+    destination=payload.get('location',payload.get('savepath',payload.get('savePath')))
     if destination:
         target=pathlib.Path(destination)
         if target.resolve()!=target:raise ValueError('Download directory contains symlinks')
+    if body['path']=='torrents/setLocation':prepare_move(payload['hashes'],target,send)
     if body['path']=='mediaseed/status':
         values={path:send(path+query) for path,query in [('app/preferences',''),('torrents/info','?limit=500'),('transfer/info',''),('app/version','')]}
         result={'status':200,'body':base64.b64encode(json.dumps(values).encode()).decode()}
@@ -491,6 +494,7 @@ class Seedbox:
                 "torrents/add": {"urls", "stopped", "paused", "savepath", "ratioLimit", "seedingTimeLimit", "shareLimitAction", "category", "tags"},
                 "torrents/start": {"hashes"}, "torrents/stop": {"hashes"},
                 "torrents/recheck": {"hashes"},
+                "torrents/setLocation": {"hashes", "location"},
                 "torrents/delete": {"hashes", "deleteFiles"},
                 "torrents/setShareLimits": {"hashes", "ratioLimit", "seedingTimeLimit", "inactiveSeedingTimeLimit", "shareLimitAction"},
                 "torrents/setFilePriority": {"hash", "id", "priority"},
@@ -505,6 +509,9 @@ class Seedbox:
                 # qBittorrent 5.2 requires this field for setShareLimits. Keep
                 # older callers compatible while preventing global auto-delete.
                 payload = {**payload, "shareLimitAction": "Stop"}
+            if path == "torrents/setLocation":
+                if not self.valid_download_path(payload.get("location", "")) or ".incomplete" in payload["location"].split("/"):
+                    raise HTTPException(422, "Choose an approved final destination folder")
             if path == "torrents/createCategory":
                 if not re.fullmatch(r"MediaSeed-RSS-[a-f0-9]{24}", str(payload.get("category", ""))) or not self.valid_download_path(payload.get("savePath", "")):
                     raise HTTPException(422, "Invalid RSS category")

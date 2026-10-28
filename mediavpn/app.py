@@ -342,7 +342,7 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
 
     @app.get("/healthz")
     def health():
-        return {"status": "healthy", "version": "0.2.32"}
+        return {"status": "healthy", "version": "0.2.33"}
 
     @app.get("/api/runtime")
     def runtime_status(session=Depends(authorized)):
@@ -571,7 +571,7 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
         state = seedbox.display_status()
         with database() as connection:
             profiles = connection.execute("SELECT id,name,port_forwarding FROM profiles ORDER BY name").fetchall()
-        return {**state, "torrentCapabilities": ["recheck", "queue-settings", "rss-settings"], "profiles": [{**dict(profile), **runtime.status(profile["id"])} for profile in profiles]}
+        return {**state, "torrentCapabilities": ["move-location", "recheck", "queue-settings", "rss-settings"], "profiles": [{**dict(profile), **runtime.status(profile["id"])} for profile in profiles]}
 
     @app.get("/api/seedbox")
     def seedbox_status(session=Depends(authorized)):
