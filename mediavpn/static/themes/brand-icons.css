@@ -1,6 +1,19 @@
-.brand-mark { display: inline-block; flex-shrink: 0; color: var(--accent); vertical-align: middle; stroke-width: 2.4 !important; stroke-linecap: round !important; stroke-linejoin: round !important; }
-.brand > .brand-mark, .brand .brand-mark { filter: drop-shadow(0 0 8px color-mix(in srgb, var(--accent) 14%, transparent)); }
-:root[data-reduced-motion="true"] .brand-mark { filter: none; }
-.sidebar-heading .brand .brand-mark { width: 29px; height: 29px; }
-.shell-brand .brand .brand-mark { width: 28px; height: 28px; }
-.mobile-brand .brand .brand-mark { width: 26px; height: 26px; }
+.brand-mark{display:inline-block;flex-shrink:0;color:var(--accent,#25c9ed);vertical-align:middle;stroke:none!important;overflow:visible}
+.brand-mark path{stroke:color-mix(in srgb,var(--accent,#25c9ed) 60%,white)!important;stroke-width:.12;stroke-linejoin:round;paint-order:stroke fill}
+.prisme-start{stop-color:color-mix(in srgb,var(--accent,#25c9ed) 65%,white)}
+.prisme-mid{stop-color:var(--accent,#25c9ed)}
+.prisme-end{stop-color:var(--indigo,var(--secondary,#8d9cff))}
+.prisme-back .prisme-start{stop-color:var(--indigo,var(--secondary,#8d9cff))}
+.prisme-back .prisme-mid{stop-color:color-mix(in srgb,var(--accent,#25c9ed) 60%,var(--indigo,var(--secondary,#8d9cff)))}
+.prisme-back .prisme-end,.prisme-fold .prisme-end{stop-color:color-mix(in srgb,var(--indigo,var(--secondary,#8d9cff)) 65%,black)}
+.prisme-fold .prisme-start{stop-color:color-mix(in srgb,var(--accent,#25c9ed) 45%,black)}
+.prisme-light .prisme-start{stop-color:color-mix(in srgb,var(--accent,#25c9ed) 35%,white)}
+.prisme-light .prisme-end{stop-color:var(--accent,#25c9ed)}
+.sidebar-heading .brand .brand-mark{width:29px;height:29px}.shell-brand .brand .brand-mark{width:28px;height:28px}.mobile-brand .brand .brand-mark{width:26px;height:26px}
+.prisme-nav-icon{display:inline-block;vertical-align:middle;flex-shrink:0;color:inherit}
+.settings-tabs button{display:inline-flex;align-items:center;gap:8px}
+[data-prisme-nav]{display:inline-flex;align-items:center;gap:8px}
+.app-nav-icon>.prisme-nav-icon{width:20px;height:20px}
+@media(forced-colors:active){.brand-mark path{fill:CanvasText!important}}
+
+.prisme-orb-light{stop-color:color-mix(in srgb,var(--accent,#25c9ed) 20%,white)}

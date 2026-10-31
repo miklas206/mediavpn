@@ -1,1 +1,20 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" color="#25c9ed"><path d="M16 3L27 7V16C27 22 22 26 16 29C10 26 5 22 5 16V7Z"/><path d="M19 14A3 3 0 1 1 13 14A3 3 0 1 1 19 14Z" fill="currentColor"/><path d="M16 17V22"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" class="brand-mark" data-brand="mediavpn" data-brand-version="prisme-1" aria-hidden="true"><defs><linearGradient id="prisme-mediavpn-38-front" class="prisme-front" gradientUnits="userSpaceOnUse" x1="5" y1="4" x2="28" y2="30"><stop offset="0" class="prisme-start"/><stop offset=".48" class="prisme-mid"/><stop offset="1" class="prisme-end"/></linearGradient><linearGradient id="prisme-mediavpn-38-back" class="prisme-back" gradientUnits="userSpaceOnUse" x1="5" y1="4" x2="28" y2="30"><stop offset="0" class="prisme-start"/><stop offset=".48" class="prisme-mid"/><stop offset="1" class="prisme-end"/></linearGradient><linearGradient id="prisme-mediavpn-38-fold" class="prisme-fold" gradientUnits="userSpaceOnUse" x1="5" y1="4" x2="28" y2="30"><stop offset="0" class="prisme-start"/><stop offset=".48" class="prisme-mid"/><stop offset="1" class="prisme-end"/></linearGradient><linearGradient id="prisme-mediavpn-38-light" class="prisme-light" gradientUnits="userSpaceOnUse" x1="5" y1="4" x2="28" y2="30"><stop offset="0" class="prisme-start"/><stop offset=".48" class="prisme-mid"/><stop offset="1" class="prisme-end"/></linearGradient><radialGradient id="prisme-mediavpn-38-orb" cx="30%" cy="25%" r="75%"><stop offset="0" class="prisme-orb-light"/><stop offset=".42" class="prisme-mid"/><stop offset="1" class="prisme-end"/></radialGradient></defs><style>.brand-mark{display:inline-block;flex-shrink:0;color:var(--accent,#25c9ed);vertical-align:middle;stroke:none!important;overflow:visible}
+.brand-mark path{stroke:color-mix(in srgb,var(--accent,#25c9ed) 60%,white)!important;stroke-width:.12;stroke-linejoin:round;paint-order:stroke fill}
+.prisme-start{stop-color:color-mix(in srgb,var(--accent,#25c9ed) 65%,white)}
+.prisme-mid{stop-color:var(--accent,#25c9ed)}
+.prisme-end{stop-color:var(--indigo,var(--secondary,#8d9cff))}
+.prisme-back .prisme-start{stop-color:var(--indigo,var(--secondary,#8d9cff))}
+.prisme-back .prisme-mid{stop-color:color-mix(in srgb,var(--accent,#25c9ed) 60%,var(--indigo,var(--secondary,#8d9cff)))}
+.prisme-back .prisme-end,.prisme-fold .prisme-end{stop-color:color-mix(in srgb,var(--indigo,var(--secondary,#8d9cff)) 65%,black)}
+.prisme-fold .prisme-start{stop-color:color-mix(in srgb,var(--accent,#25c9ed) 45%,black)}
+.prisme-light .prisme-start{stop-color:color-mix(in srgb,var(--accent,#25c9ed) 35%,white)}
+.prisme-light .prisme-end{stop-color:var(--accent,#25c9ed)}
+.sidebar-heading .brand .brand-mark{width:29px;height:29px}.shell-brand .brand .brand-mark{width:28px;height:28px}.mobile-brand .brand .brand-mark{width:26px;height:26px}
+.prisme-nav-icon{display:inline-block;vertical-align:middle;flex-shrink:0;color:inherit}
+.settings-tabs button{display:inline-flex;align-items:center;gap:8px}
+[data-prisme-nav]{display:inline-flex;align-items:center;gap:8px}
+.app-nav-icon>.prisme-nav-icon{width:20px;height:20px}
+@media(forced-colors:active){.brand-mark path{fill:CanvasText!important}}
+
+.prisme-orb-light{stop-color:color-mix(in srgb,var(--accent,#25c9ed) 20%,white)}
+</style><path d="M16 2.88 4.48 8.64V15.68Q4.48 22.72 13.44 27.84V22.08Q8.64 18.24 8.64 15.04V11.2L16 7.36Z" fill="url(#prisme-mediavpn-38-front)" fill-rule="evenodd"/><path d="M16 2.88 27.52 8.64V15.68Q27.52 22.72 18.56 27.84V22.08Q23.36 18.24 23.36 15.04V11.2L16 7.36Z" fill="url(#prisme-mediavpn-38-back)" fill-rule="evenodd"/><path d="M4.48 8.64 8.64 11.2 16 7.36 23.36 11.2 27.52 8.64 16 2.88Z" fill="url(#prisme-mediavpn-38-light)" fill-rule="evenodd"/><path d="M11.2 24V16.96C11.2 9.92 20.8 9.92 20.8 16.96V24L17.28 26.88V16.96C17.28 14.72 14.72 14.72 14.72 16.96V26.88Z" fill="url(#prisme-mediavpn-38-front)" fill-rule="evenodd"/></svg>
