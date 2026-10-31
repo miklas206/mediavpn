@@ -29,12 +29,33 @@ def test_read_cache_never_reconciles_and_mutations_revalidate(tmp_path):
     assert not box.read_cache
 
 
-def test_expired_display_observation_is_unverified(tmp_path, monkeypatch):
+@pytest.mark.parametrize('previous', [None, (19, {'ready': True, 'downloadsEnabled': True})])
+@pytest.mark.parametrize('ready', [True, False])
+def test_expired_or_missing_display_observation_rechecks_binding(tmp_path, monkeypatch, previous, ready):
     box = Seedbox(SimpleNamespace(enabled=False), tmp_path)
     monkeypatch.setattr('mediavpn.seedbox.time.monotonic',lambda:30)
-    box.status_snapshot=(19,{'ready':True,'downloadsEnabled':True})
-    assert box.display_status()['ready'] is False
-    assert box.display_status()['stale'] is True
+    box.status_snapshot = previous
+    calls = []
+    box.reconcile = lambda: pytest.fail('Display must not change runtime')
+    def status(verify_client=True):
+        calls.append(verify_client)
+        return {'ready': ready, 'downloadsEnabled': ready}
+    box.status = status
+    assert box.display_status() == {'ready': ready, 'downloadsEnabled': ready}
+    assert box.display_status()['ready'] is ready
+    assert calls == [True]  # Concurrent/repeated readers reuse the new observation.
+
+
+def test_expired_display_never_reuses_ready_sample_after_check_failure(tmp_path, monkeypatch):
+    box = Seedbox(SimpleNamespace(enabled=False), tmp_path)
+    monkeypatch.setattr('mediavpn.seedbox.time.monotonic', lambda: 30)
+    box.status_snapshot = (19, {'ready': True, 'downloadsEnabled': True})
+    def failed_status():
+        raise HTTPException(503, 'Synthetic observation failure')
+    box.status = failed_status
+    with pytest.raises(HTTPException) as error:
+        box.display_status()
+    assert error.value.status_code == 503
 
 
 def test_supervisor_batches_status_and_rejects_wrong_binding(tmp_path):

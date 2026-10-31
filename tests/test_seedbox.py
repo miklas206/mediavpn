@@ -242,7 +242,7 @@ def test_add_mode_is_validated_and_both_modes_use_fresh_vpn_gate(tmp_path, pause
     assert caught.value.status_code == 409 and not calls
     controller.status = lambda: {"ready": True}
     controller.rpc("torrents/add", "POST", payload)
-    assert calls == [{**payload, "shareLimitAction": "Stop"}]
+    assert calls == [{**payload, "shareLimitAction": "Stop", "downloadPath": "/downloads/.incomplete", "useDownloadPath": "true", "autoTMM": "false"}]
     with pytest.raises(HTTPException) as caught:
         controller.rpc("torrents/add", "POST", {**payload, "paused": "maybe"})
     assert caught.value.status_code == 422

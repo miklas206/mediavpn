@@ -17,13 +17,14 @@ from mediavpn.move_location import PREPARE_MOVE_CODE
 from mediavpn.transfer_settings import TransferSettings, FIELDS
 
 from mediavpn.diagnostics import container_fields, emit, error_fields, trace
+from mediavpn.incomplete import PREPARE_INCOMPLETE_CODE
 
 CLIENT_OWNER = "org.mediahub.mediavpn.seedbox"
 CLIENT_NAME = "mediavpn-mediaseed-client"
 ALLOWED_READS = {"app/version", "app/preferences", "torrents/info", "torrents/categories", "transfer/info", "torrents/properties", "torrents/files", "torrents/trackers", "sync/torrentPeers", "rss/items", "rss/torrent"}
 ALLOWED_WRITES = {"torrents/setLocation", "torrents/add", "torrents/start", "torrents/stop", "torrents/recheck", "torrents/delete", "torrents/setShareLimits", "torrents/setFilePriority", "torrents/createCategory", "torrents/topPrio", "rss/addFeed", "rss/removeItem", "rss/refreshItem"}
 
-RPC_CODE = PREPARE_MOVE_CODE + """
+RPC_CODE = PREPARE_INCOMPLETE_CODE + PREPARE_MOVE_CODE + """
 import base64,http.cookiejar,json,pathlib,re,sys,urllib.request,urllib.parse,urllib.error
 body=json.loads(base64.b64decode(sys.argv[1]))
 endpoint='http://127.0.0.1:8080/api/v2/'
@@ -34,17 +35,38 @@ def send(path,data=None,content_type='application/x-www-form-urlencoded'):
         raw=response.read(8*1024*1024+1)
         if len(raw)>8*1024*1024:raise ValueError('Client response too large')
         return {'status':response.status,'body':base64.b64encode(raw).decode()}
+def transfer_info():
+    result=send('transfer/info')
+    try:
+        values=json.loads(base64.b64decode(result['body']))
+        totals=json.loads(base64.b64decode(send('sync/maindata?rid=0')['body'])).get('server_state',{})
+        if not isinstance(values,dict) or not isinstance(totals,dict):return result
+        for key in ('alltime_ul','alltime_dl'):
+            value=totals.get(key)
+            if type(value) is int and 0<=value<=2**63-1:values[key]=value
+        result['body']=base64.b64encode(json.dumps(values).encode()).decode()
+    except (KeyError,ValueError,TypeError,urllib.error.URLError,OSError):
+        pass
+    return result
 try:
     password=pathlib.Path('/secrets/qbit-password').read_text().strip()
     send('auth/login',urllib.parse.urlencode({'username':'mediaseed','password':password}).encode())
     payload=body.get('payload') or {}
+    if body['path']=='torrents/add':
+        try:
+            payload['downloadPath']=prepare_incomplete(payload['savepath'])
+            payload['useDownloadPath']='true'
+            payload['autoTMM']='false'
+        except OSError:
+            print(json.dumps({'status':409,'body':'','error':'incomplete_storage_unavailable'}))
+            raise SystemExit(0)
     destination=payload.get('location',payload.get('savepath',payload.get('savePath')))
     if destination:
         target=pathlib.Path(destination)
         if target.resolve()!=target:raise ValueError('Download directory contains symlinks')
     if body['path']=='torrents/setLocation':prepare_move(payload['hashes'],target,send)
     if body['path']=='mediaseed/status':
-        values={path:send(path+query) for path,query in [('app/preferences',''),('torrents/info','?limit=500'),('transfer/info',''),('app/version','')]}
+        values={path:(transfer_info() if path=='transfer/info' else send(path+query)) for path,query in [('app/preferences',''),('torrents/info','?limit=500'),('transfer/info',''),('app/version','')]}
         result={'status':200,'body':base64.b64encode(json.dumps(values).encode()).decode()}
     elif body['path']=='rss/torrent':
         class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -58,7 +80,7 @@ try:
             if len(raw)>4*1024*1024 or not raw.startswith(b'd') or not raw.endswith(b'e'):raise ValueError('Invalid torrent')
             result={'status':response.status,'body':base64.b64encode(raw).decode()}
     elif body['method']=='GET':
-        result=send(body['path']+('?' + urllib.parse.urlencode(payload) if payload else ''))
+        result=transfer_info() if body['path']=='transfer/info' else send(body['path']+('?' + urllib.parse.urlencode(payload) if payload else ''))
     elif body.get('file_path'):
         boundary='mediaseed-internal-upload'
         chunks=[]
@@ -422,7 +444,16 @@ class Seedbox:
         sample = self.status_snapshot
         if sample and time.monotonic() - sample[0] < 10:
             return dict(sample[1])
-        return {**self.settings(), "ready": False, "downloadsEnabled": False, "vpn": "unverified", "publicIp": None, "forwardedPort": None, "country": None, "checkedAt": None, "reason": "Afventer en ny VPN-status", "stale": True}
+        # Other profiles/helpers can delay the supervisor beyond the display TTL.
+        # Recheck the tunnel, namespace and client binding instead of treating a
+        # missed background sample as a disconnected VPN. Never reconcile here.
+        with self.lock:
+            sample = self.status_snapshot
+            if sample and time.monotonic() - sample[0] < 10:
+                return dict(sample[1])
+            observed = self.status()
+            self.status_snapshot = (time.monotonic(), observed)
+            return dict(observed)
 
     def refresh_snapshot(self):
         with self.lock:
@@ -514,6 +545,8 @@ class Seedbox:
             raise HTTPException(503, "Torrent client unavailable")
         response = json.loads(result.output)
         if response.get("status", 503) >= 400:
+            if response.get("error") == "incomplete_storage_unavailable":
+                raise HTTPException(409, "The destination's .incomplete folder is unavailable, read-only or on another filesystem")
             raise HTTPException(422 if response["status"] == 415 else 503, "Torrent client rejected the request")
         return response
 
@@ -538,7 +571,7 @@ class Seedbox:
                 raise HTTPException(422, "Invalid RSS feed path")
         if method == "POST":
             fields = {
-                "torrents/add": {"urls", "stopped", "paused", "savepath", "ratioLimit", "seedingTimeLimit", "shareLimitAction", "category", "tags"},
+                "torrents/add": {"urls", "stopped", "paused", "savepath", "ratioLimit", "seedingTimeLimit", "shareLimitAction", "category", "tags", "downloadPath", "useDownloadPath", "autoTMM"},
                 "torrents/start": {"hashes"}, "torrents/stop": {"hashes"},
                 "torrents/recheck": {"hashes"},
                 "torrents/setLocation": {"hashes", "location"},
@@ -573,6 +606,15 @@ class Seedbox:
                     raise HTTPException(422, "Choose a consistent torrent start mode")
                 if not self.valid_download_path(payload.get("savepath", "")):
                     raise HTTPException(422, "Invalid download path")
+                destination = payload["savepath"]
+                if ".incomplete" in destination.split("/"):
+                    raise HTTPException(422, "Choose the final download folder, not .incomplete")
+                staging = destination + "/.incomplete"
+                if (payload.get("downloadPath", staging) != staging
+                        or payload.get("useDownloadPath", "true") != "true"
+                        or payload.get("autoTMM", "false") != "false"):
+                    raise HTTPException(422, "Incomplete downloads must stay inside the final destination")
+                payload = {**payload, "downloadPath": staging, "useDownloadPath": "true", "autoTMM": "false"}
                 if content is None and not str(payload.get("urls", "")).startswith("magnet:?"):
                     raise HTTPException(422, "Expected a magnet or torrent file")
             if "ratioLimit" in payload:

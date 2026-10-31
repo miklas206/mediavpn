@@ -16,6 +16,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
+from starlette.concurrency import run_in_threadpool
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from mediavpn.auth import install_auth
@@ -343,7 +344,7 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
 
     @app.get("/healthz")
     def health():
-        return {"status": "healthy", "version": "0.2.35"}
+        return {"status": "healthy", "version": "0.2.36"}
 
     @app.get("/api/runtime")
     def runtime_status(session=Depends(authorized)):
@@ -572,7 +573,7 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
         state = seedbox.display_status()
         with database() as connection:
             profiles = connection.execute("SELECT id,name,port_forwarding FROM profiles ORDER BY name").fetchall()
-        return {**state, "torrentCapabilities": ["move-location", "recheck", "queue-settings", "rss-settings", "transfer-settings"], "profiles": [{**dict(profile), **runtime.status(profile["id"])} for profile in profiles]}
+        return {**state, "torrentCapabilities": ["move-location", "recheck", "queue-settings", "rss-settings", "transfer-settings", "destination-incomplete"], "profiles": [{**dict(profile), **runtime.status(profile["id"])} for profile in profiles]}
 
     @app.get("/api/seedbox")
     def seedbox_status(session=Depends(authorized)):
@@ -670,7 +671,7 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
             if len(content) > 4 * 1024 * 1024:
                 raise HTTPException(413, "Torrent file exceeds 4 MiB")
         paused = "false" if start else "true"
-        return seedbox.rpc("torrents/add", "POST", {"stopped": paused, "paused": paused, "savepath": savepath, "ratioLimit": str(ratio), "seedingTimeLimit": "2940", "category": category, "tags": tags}, bytes(content))
+        return await run_in_threadpool(seedbox.rpc, "torrents/add", "POST", {"stopped": paused, "paused": paused, "savepath": savepath, "ratioLimit": str(ratio), "seedingTimeLimit": "2940", "category": category, "tags": tags}, bytes(content))
 
     @app.get("/api/profiles")
     def listing(session=Depends(authorized)):
