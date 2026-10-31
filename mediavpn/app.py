@@ -1,3 +1,4 @@
+from mediavpn.transfer_settings import TransferSettings
 import hashlib
 import ipaddress
 import logging
@@ -342,7 +343,7 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
 
     @app.get("/healthz")
     def health():
-        return {"status": "healthy", "version": "0.2.34"}
+        return {"status": "healthy", "version": "0.2.35"}
 
     @app.get("/api/runtime")
     def runtime_status(session=Depends(authorized)):
@@ -571,7 +572,7 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
         state = seedbox.display_status()
         with database() as connection:
             profiles = connection.execute("SELECT id,name,port_forwarding FROM profiles ORDER BY name").fetchall()
-        return {**state, "torrentCapabilities": ["move-location", "recheck", "queue-settings", "rss-settings"], "profiles": [{**dict(profile), **runtime.status(profile["id"])} for profile in profiles]}
+        return {**state, "torrentCapabilities": ["move-location", "recheck", "queue-settings", "rss-settings", "transfer-settings"], "profiles": [{**dict(profile), **runtime.status(profile["id"])} for profile in profiles]}
 
     @app.get("/api/seedbox")
     def seedbox_status(session=Depends(authorized)):
@@ -636,6 +637,14 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
     @app.put("/api/integration/queue")
     def integration_queue_settings(body: DownloadQueueSettings, session=Depends(machine_authorized)):
         return seedbox.queue_settings(body.maxActiveDownloads)
+
+    @app.get("/api/integration/transfer")
+    def integration_transfer(session=Depends(machine_authorized)):
+        return seedbox.transfer_settings()
+
+    @app.put("/api/integration/transfer")
+    def integration_transfer_settings(body: TransferSettings, session=Depends(machine_authorized)):
+        return seedbox.transfer_settings(body)
 
     class RssSettings(BaseModel):
         model_config = ConfigDict(extra="forbid")

@@ -84,9 +84,10 @@ def test_missing_vpn_port_stops_client_and_never_creates(tmp_path):
     assert controller.error is not None
 
 
+@pytest.mark.parametrize("saved_transfer", [False, True])
 @pytest.mark.parametrize("saved_rss", [None, 10, 30])
 @pytest.mark.parametrize("saved_limit", [8, 3, 25])
-def test_reconnect_replaces_network_namespace_and_updates_port(tmp_path, saved_limit, saved_rss):
+def test_reconnect_replaces_network_namespace_and_updates_port(tmp_path, saved_limit, saved_rss, saved_transfer):
     import base64
     import json
     events = []
@@ -95,6 +96,10 @@ def test_reconnect_replaces_network_namespace_and_updates_port(tmp_path, saved_l
         status=lambda identifier: {"healthy": True, "forwardedPort": 54321, "publicIp": "8.8.8.8"})
     controller = Seedbox(runtime, tmp_path)
     controller.path.write_text(json.dumps({"enabled": True, "profileId": "a" * 24, "maxActiveDownloads": saved_limit, **({"rssRefreshMinutes": saved_rss} if saved_rss is not None else {})}))
+    if saved_transfer:
+        state = json.loads(controller.path.read_text())
+        state['transferLimits'] = dict(maxConnections=700, maxConnectionsPerTorrent=150, maxUploadSlots=48, maxUploadSlotsPerTorrent=16, maxActiveUploads=12)
+        controller.path.write_text(json.dumps(state))
     child = SimpleNamespace(labels={"org.mediahub.mediavpn.generation": "old-vpn:old-generation"},
         attrs={"State": {"Running": True}}, reload=lambda: None,
         stop=lambda **kwargs: events.append("stop old client"), remove=lambda: events.append("remove old container"))
@@ -125,6 +130,10 @@ def test_reconnect_replaces_network_namespace_and_updates_port(tmp_path, saved_l
     assert preferences["rss_refresh_interval"] == (saved_rss or 5)
     assert preferences["max_active_downloads"] == saved_limit
     assert controller.download_limit() == saved_limit
+    if saved_transfer:
+        assert preferences["max_uploads_per_torrent"] == 16
+        assert preferences["max_active_uploads"] == 12
+        assert preferences["max_connec"] == 700
 
 def test_rpc_is_restricted_and_requires_readiness(tmp_path):
     controller = Seedbox(SimpleNamespace(enabled=False), tmp_path)
