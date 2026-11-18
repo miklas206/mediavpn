@@ -411,3 +411,18 @@ async function refreshAccountPreferences() {
 document.addEventListener('visibilitychange', () => { if (!document.hidden) void refreshAccountPreferences(); });
 window.addEventListener('focus', () => { void refreshAccountPreferences(); });
 setInterval(() => { void refreshAccountPreferences(); }, 60000);
+
+async function displayAppVersion() {
+  try {
+    const response = await fetch('/healthz', {cache: 'no-store'});
+    if (!response.ok) return;
+    const {version} = await response.json();
+    if (typeof version !== 'string') return;
+    for (const label of document.querySelectorAll('[data-app-version]')) {
+      label.textContent = 'MediaVPN ' + version;
+    }
+  } catch {
+    // Keep the product name visible while the version is unavailable.
+  }
+}
+void displayAppVersion();

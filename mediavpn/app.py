@@ -344,7 +344,7 @@ def create_app(data_dir=None, base_url=None, runtime=None, hub_transport=None, s
 
     @app.get("/healthz")
     def health():
-        return {"status": "healthy", "version": "0.2.36"}
+        return {"status": "healthy", "version": "0.2.37"}
 
     @app.get("/api/runtime")
     def runtime_status(session=Depends(authorized)):

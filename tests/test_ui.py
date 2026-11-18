@@ -15,7 +15,7 @@ def test_preview_upload_and_responsive_views():
     key = base64.b64encode(bytes(range(32))).decode()
     configuration = f"[Interface]\nPrivateKey={key}\nAddress=10.2.0.2/32\n[Peer]\nPublicKey={key}\nAllowedIPs=0.0.0.0/0\nEndpoint=1.1.1.1:51820\n"
     with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(channel="chrome", headless=True)
+        browser = playwright.chromium.launch(executable_path=os.environ.get("MEDIAVPN_UI_BROWSER"), headless=True)
         page = browser.new_page()
         errors = []
         page.on("pageerror", lambda error: errors.append(str(error)))
@@ -25,14 +25,22 @@ def test_preview_upload_and_responsive_views():
             page.set_viewport_size({"width": width, "height": 900})
             assert not page.evaluate("document.documentElement.scrollWidth > innerWidth")
             page.screenshot(path=str(target / f"mediavpn-login-{width}.png"))
+        page.locator("#account-language").select_option("da")
+        version = page.request.get(os.environ["MEDIAVPN_UI_URL"] + "/healthz").json()["version"]
+        from playwright.sync_api import expect
+        expect(page.locator("footer [data-app-version]")).to_have_text("MediaVPN " + version)
         page.get_by_role("textbox", name="Brugernavn").fill("synthetic")
         page.get_by_role("textbox", name="Adgangskode").fill("synthetic-test-password")
         page.locator("#login-submit").click()
         page.get_by_role("heading", name="Forbindelser", exact=True).wait_for()
-        page.get_by_role("button", name="Ny forbindelse", exact=True).click()
+        page.locator("#add").click()
         page.get_by_role("textbox", name="Navn", exact=True).fill("Synthetic VPN")
         page.locator("#configuration").set_input_files({"name": "synthetic.conf", "mimeType": "text/plain", "buffer": configuration.encode()})
-        page.get_by_role("button", name="Gem forbindelse", exact=True).click()
+        form = page.locator("#profile-form")
+        for _ in range(2):
+            form.get_by_role("button", name="Næste", exact=True).click()
+        form.get_by_role("button", name="Gem forbindelse", exact=True).click()
+        expect(page.locator("#profile-dialog")).not_to_be_visible()
         page.get_by_role("heading", name="Synthetic VPN", exact=True).wait_for()
         assert page.get_by_role("button", name="Start", exact=True).is_disabled()
         assert key not in page.locator("body").inner_text()
@@ -41,6 +49,7 @@ def test_preview_upload_and_responsive_views():
             assert not page.evaluate("document.documentElement.scrollWidth > innerWidth")
             page.screenshot(path=str(target / f"mediavpn-profiles-{width}.png"))
         page.on("dialog", lambda dialog: dialog.accept())
+        page.locator(".profile-more > summary").click()
         page.get_by_role("button", name="Fjern", exact=True).click()
         page.get_by_text("Ingen forbindelser endnu.", exact=True).wait_for()
         assert errors == []
